@@ -1,0 +1,503 @@
+{
+  "_type": "export",
+  "__export_format": 4,
+  "__export_date": "2026-03-19",
+  "__export_source": "insomnia",
+  "resources": [
+    {
+      "_id": "wrk_barbershop",
+      "_type": "workspace",
+      "name": "Barbershop SaaS API",
+      "description": "Collection completa da API"
+    },
+    {
+      "_id": "env_base",
+      "_type": "environment",
+      "parentId": "wrk_barbershop",
+      "name": "Base Environment",
+      "data": {
+        "base_url": "http://localhost:3000",
+        "token": ""
+      }
+    },
+
+    {
+      "_id": "fld_auth",
+      "_type": "request_group",
+      "parentId": "wrk_barbershop",
+      "name": "Auth"
+    },
+    {
+      "_id": "req_auth_login",
+      "_type": "request",
+      "parentId": "fld_auth",
+      "name": "Login",
+      "method": "POST",
+      "url": "{{ _.base_url }}/api/auth/login",
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"email\": \"vini@barbearia.com\",\n  \"password\": \"123456\"\n}"
+      }
+    },
+
+    {
+      "_id": "fld_barbershops",
+      "_type": "request_group",
+      "parentId": "wrk_barbershop",
+      "name": "Barbershops"
+    },
+    {
+      "_id": "req_barbershops_list",
+      "_type": "request",
+      "parentId": "fld_barbershops",
+      "name": "List all barbershops (público)",
+      "method": "GET",
+      "url": "{{ _.base_url }}/api/barbershops",
+      "headers": [],
+      "body": {}
+    },
+    {
+      "_id": "req_barbershops_get_by_slug",
+      "_type": "request",
+      "parentId": "fld_barbershops",
+      "name": "Get by slug (público)",
+      "method": "GET",
+      "url": "{{ _.base_url }}/api/barbershops/slug/barbearia-do-vini",
+      "headers": [],
+      "body": {}
+    },
+    {
+      "_id": "req_barbershops_get_by_id",
+      "_type": "request",
+      "parentId": "fld_barbershops",
+      "name": "Get by ID",
+      "method": "GET",
+      "url": "{{ _.base_url }}/api/barbershops/1",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "body": {}
+    },
+    {
+      "_id": "req_barbershops_create",
+      "_type": "request",
+      "parentId": "fld_barbershops",
+      "name": "Register barbershop (público)",
+      "method": "POST",
+      "url": "{{ _.base_url }}/api/barbershops",
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"name\": \"Minha Barbearia\",\n  \"slug\": \"minha-barbearia\",\n  \"phone\": \"(11) 99999-9999\",\n  \"email\": \"contato@minha-barbearia.com\",\n  \"password\": \"senha123\"\n}"
+      }
+    },
+    {
+      "_id": "req_barbershops_update",
+      "_type": "request",
+      "parentId": "fld_barbershops",
+      "name": "Update barbershop",
+      "method": "PUT",
+      "url": "{{ _.base_url }}/api/barbershops/1",
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" },
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"name\": \"Barbearia Atualizada\",\n  \"slug\": \"barbearia-atualizada\",\n  \"phone\": \"(11) 88888-8888\",\n  \"email\": \"novo@email.com\"\n}"
+      }
+    },
+    {
+      "_id": "req_barbershops_delete",
+      "_type": "request",
+      "parentId": "fld_barbershops",
+      "name": "Delete barbershop",
+      "method": "DELETE",
+      "url": "{{ _.base_url }}/api/barbershops/1",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "body": {}
+    },
+
+    {
+      "_id": "fld_barbers",
+      "_type": "request_group",
+      "parentId": "wrk_barbershop",
+      "name": "Barbers"
+    },
+    {
+      "_id": "req_barbers_list",
+      "_type": "request",
+      "parentId": "fld_barbers",
+      "name": "List barbers",
+      "method": "GET",
+      "url": "{{ _.base_url }}/api/barbers",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "body": {}
+    },
+    {
+      "_id": "req_barbers_get_by_id",
+      "_type": "request",
+      "parentId": "fld_barbers",
+      "name": "Get barber by ID",
+      "method": "GET",
+      "url": "{{ _.base_url }}/api/barbers/1",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "body": {}
+    },
+    {
+      "_id": "req_barbers_create",
+      "_type": "request",
+      "parentId": "fld_barbers",
+      "name": "Create barber",
+      "method": "POST",
+      "url": "{{ _.base_url }}/api/barbers",
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" },
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"name\": \"João Silva\",\n  \"phone\": \"(11) 91111-2222\"\n}"
+      }
+    },
+    {
+      "_id": "req_barbers_update",
+      "_type": "request",
+      "parentId": "fld_barbers",
+      "name": "Update barber",
+      "method": "PUT",
+      "url": "{{ _.base_url }}/api/barbers/1",
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" },
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"name\": \"João Atualizado\",\n  \"phone\": \"(11) 93333-4444\"\n}"
+      }
+    },
+    {
+      "_id": "req_barbers_delete",
+      "_type": "request",
+      "parentId": "fld_barbers",
+      "name": "Delete barber",
+      "method": "DELETE",
+      "url": "{{ _.base_url }}/api/barbers/1",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "body": {}
+    },
+
+    {
+      "_id": "fld_services",
+      "_type": "request_group",
+      "parentId": "wrk_barbershop",
+      "name": "Services"
+    },
+    {
+      "_id": "req_services_list",
+      "_type": "request",
+      "parentId": "fld_services",
+      "name": "List services",
+      "method": "GET",
+      "url": "{{ _.base_url }}/api/services",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "body": {}
+    },
+    {
+      "_id": "req_services_get_by_id",
+      "_type": "request",
+      "parentId": "fld_services",
+      "name": "Get service by ID",
+      "method": "GET",
+      "url": "{{ _.base_url }}/api/services/1",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "body": {}
+    },
+    {
+      "_id": "req_services_create",
+      "_type": "request",
+      "parentId": "fld_services",
+      "name": "Create service",
+      "method": "POST",
+      "url": "{{ _.base_url }}/api/services",
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" },
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"name\": \"Corte de Cabelo\",\n  \"duration_minutes\": 30,\n  \"price\": 35.00\n}"
+      }
+    },
+    {
+      "_id": "req_services_update",
+      "_type": "request",
+      "parentId": "fld_services",
+      "name": "Update service",
+      "method": "PUT",
+      "url": "{{ _.base_url }}/api/services/1",
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" },
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"name\": \"Corte + Barba\",\n  \"duration_minutes\": 45,\n  \"price\": 55.00\n}"
+      }
+    },
+    {
+      "_id": "req_services_delete",
+      "_type": "request",
+      "parentId": "fld_services",
+      "name": "Delete service",
+      "method": "DELETE",
+      "url": "{{ _.base_url }}/api/services/1",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "body": {}
+    },
+
+    {
+      "_id": "fld_customers",
+      "_type": "request_group",
+      "parentId": "wrk_barbershop",
+      "name": "Customers"
+    },
+    {
+      "_id": "req_customers_list",
+      "_type": "request",
+      "parentId": "fld_customers",
+      "name": "List customers",
+      "method": "GET",
+      "url": "{{ _.base_url }}/api/customers",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "body": {}
+    },
+    {
+      "_id": "req_customers_get_by_id",
+      "_type": "request",
+      "parentId": "fld_customers",
+      "name": "Get customer by ID",
+      "method": "GET",
+      "url": "{{ _.base_url }}/api/customers/1",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "body": {}
+    },
+    {
+      "_id": "req_customers_create",
+      "_type": "request",
+      "parentId": "fld_customers",
+      "name": "Create customer",
+      "method": "POST",
+      "url": "{{ _.base_url }}/api/customers",
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" },
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"name\": \"Carlos Oliveira\",\n  \"phone\": \"(11) 95555-6666\",\n  \"email\": \"carlos@email.com\"\n}"
+      }
+    },
+    {
+      "_id": "req_customers_update",
+      "_type": "request",
+      "parentId": "fld_customers",
+      "name": "Update customer",
+      "method": "PUT",
+      "url": "{{ _.base_url }}/api/customers/1",
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" },
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"name\": \"Carlos Atualizado\",\n  \"phone\": \"(11) 97777-8888\",\n  \"email\": \"novo@carlos.com\"\n}"
+      }
+    },
+    {
+      "_id": "req_customers_delete",
+      "_type": "request",
+      "parentId": "fld_customers",
+      "name": "Delete customer",
+      "method": "DELETE",
+      "url": "{{ _.base_url }}/api/customers/1",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "body": {}
+    },
+
+    {
+      "_id": "fld_appointments",
+      "_type": "request_group",
+      "parentId": "wrk_barbershop",
+      "name": "Appointments"
+    },
+    {
+      "_id": "req_appointments_list",
+      "_type": "request",
+      "parentId": "fld_appointments",
+      "name": "List appointments",
+      "method": "GET",
+      "url": "{{ _.base_url }}/api/appointments?date=2026-03-19",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "body": {}
+    },
+    {
+      "_id": "req_appointments_get_by_id",
+      "_type": "request",
+      "parentId": "fld_appointments",
+      "name": "Get appointment by ID",
+      "method": "GET",
+      "url": "{{ _.base_url }}/api/appointments/1",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "body": {}
+    },
+    {
+      "_id": "req_appointments_create",
+      "_type": "request",
+      "parentId": "fld_appointments",
+      "name": "Create appointment",
+      "method": "POST",
+      "url": "{{ _.base_url }}/api/appointments",
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" },
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"barber_id\": 1,\n  \"customer_id\": 1,\n  \"service_id\": 1,\n  \"appointment_date\": \"2026-03-20\",\n  \"appointment_time\": \"10:00\"\n}"
+      }
+    },
+    {
+      "_id": "req_appointments_update_status",
+      "_type": "request",
+      "parentId": "fld_appointments",
+      "name": "Update status",
+      "method": "PATCH",
+      "url": "{{ _.base_url }}/api/appointments/1/status",
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" },
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"status\": \"confirmed\"\n}"
+      }
+    },
+    {
+      "_id": "req_appointments_delete",
+      "_type": "request",
+      "parentId": "fld_appointments",
+      "name": "Delete appointment",
+      "method": "DELETE",
+      "url": "{{ _.base_url }}/api/appointments/1",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "body": {}
+    },
+
+    {
+      "_id": "fld_business_hours",
+      "_type": "request_group",
+      "parentId": "wrk_barbershop",
+      "name": "Business Hours"
+    },
+    {
+      "_id": "req_bh_list",
+      "_type": "request",
+      "parentId": "fld_business_hours",
+      "name": "List business hours",
+      "method": "GET",
+      "url": "{{ _.base_url }}/api/business-hours",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "body": {}
+    },
+    {
+      "_id": "req_bh_get_by_id",
+      "_type": "request",
+      "parentId": "fld_business_hours",
+      "name": "Get business hours by ID",
+      "method": "GET",
+      "url": "{{ _.base_url }}/api/business-hours/1",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "body": {}
+    },
+    {
+      "_id": "req_bh_create",
+      "_type": "request",
+      "parentId": "fld_business_hours",
+      "name": "Create business hours",
+      "method": "POST",
+      "url": "{{ _.base_url }}/api/business-hours",
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" },
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"weekday\": 1,\n  \"open_time\": \"09:00\",\n  \"close_time\": \"18:00\"\n}"
+      }
+    },
+    {
+      "_id": "req_bh_update",
+      "_type": "request",
+      "parentId": "fld_business_hours",
+      "name": "Update business hours",
+      "method": "PUT",
+      "url": "{{ _.base_url }}/api/business-hours/1",
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" },
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"weekday\": 1,\n  \"open_time\": \"08:00\",\n  \"close_time\": \"20:00\"\n}"
+      }
+    },
+    {
+      "_id": "req_bh_delete",
+      "_type": "request",
+      "parentId": "fld_business_hours",
+      "name": "Delete business hours",
+      "method": "DELETE",
+      "url": "{{ _.base_url }}/api/business-hours/1",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "body": {}
+    }
+  ]
+}
