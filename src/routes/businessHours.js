@@ -6,6 +6,22 @@ const authenticateToken = require('../middleware/auth');
 const WEEKDAYS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 
 // GET /api/business-hours — PROTECTED: scoped to token's barbershop
+router.get('/public/:slug', async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      `SELECT bh.* FROM business_hours bh
+       INNER JOIN barbershops b ON b.id = bh.barbershop_id
+       WHERE b.slug = ?
+       ORDER BY bh.weekday`,
+      [req.params.slug]
+    );
+    const result = rows.map(r => ({ ...r, weekday_name: WEEKDAYS[r.weekday] }));
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/', authenticateToken, async (req, res) => {
   try {
     const [rows] = await db.query(

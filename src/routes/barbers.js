@@ -4,6 +4,21 @@ const db = require('../config/db');
 const authenticateToken = require('../middleware/auth');
 
 // GET /api/barbers — PROTECTED: scoped to token's barbershop
+router.get('/public/:slug', async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      `SELECT br.* FROM barbers br
+       INNER JOIN barbershops b ON b.id = br.barbershop_id
+       WHERE b.slug = ?
+       ORDER BY br.id`,
+      [req.params.slug]
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/', authenticateToken, async (req, res) => {
   try {
     const [rows] = await db.query(

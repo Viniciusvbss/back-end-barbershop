@@ -4,6 +4,118 @@ const db = require('../config/db');
 const authenticateToken = require('../middleware/auth');
 
 // GET /api/appointments?barber_id=2&date=2025-01-15&status=pending — PROTECTED
+router.get('/public/:slug', async (req, res) => {
+  const { barber_id, date, status } = req.query;
+  try {
+    let query = `
+      SELECT
+        a.id, a.appointment_date, a.appointment_time, a.status, a.created_at,
+        c.name AS customer_name, c.phone AS customer_phone,
+        b.name AS barber_name,
+        s.name AS service_name, s.duration_minutes, s.price
+      FROM appointments a
+      JOIN barbershops bs ON a.barbershop_id = bs.id
+      JOIN customers c ON a.customer_id = c.id
+      JOIN barbers b ON a.barber_id = b.id
+      JOIN services s ON a.service_id = s.id
+      WHERE bs.slug = ?
+    `;
+    const params = [req.params.slug];
+
+    if (barber_id) { query += ' AND a.barber_id = ?'; params.push(barber_id); }
+    if (date) { query += ' AND a.appointment_date = ?'; params.push(date); }
+    if (status) { query += ' AND a.status = ?'; params.push(status); }
+
+    query += ' ORDER BY a.appointment_date, a.appointment_time';
+
+    const [rows] = await db.query(query, params);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/public/:slug', async (req, res) => {
+  const {
+    barber_id,
+    service_id,
+    appointment_date,
+    appointment_time,
+    customer_name,
+    customer_phone,
+    customer_email,
+  } = req.body;
+
+  if (!barber_id || !service_id || !appointment_date || !appointment_time || !customer_name || !customer_phone) {
+    return res.status(400).json({
+      error: 'Campos obrigatorios: barber_id, service_id, appointment_date, appointment_time, customer_name, customer_phone',
+    });
+  }
+
+  try {
+    const [shopRows] = await db.query(
+      'SELECT id FROM barbershops WHERE slug = ? LIMIT 1',
+      [req.params.slug]
+    );
+    if (!shopRows.length) {
+      return res.status(404).json({ error: 'Barbearia nao encontrada' });
+    }
+
+    const barbershopId = shopRows[0].id;
+
+    const [barberRows] = await db.query(
+      'SELECT id FROM barbers WHERE id = ? AND barbershop_id = ? LIMIT 1',
+      [barber_id, barbershopId]
+    );
+    if (!barberRows.length) {
+      return res.status(400).json({ error: 'Barbeiro invalido para esta barbearia' });
+    }
+
+    const [serviceRows] = await db.query(
+      'SELECT id FROM services WHERE id = ? AND barbershop_id = ? LIMIT 1',
+      [service_id, barbershopId]
+    );
+    if (!serviceRows.length) {
+      return res.status(400).json({ error: 'Servico invalido para esta barbearia' });
+    }
+
+    let customerId;
+    const [customerRows] = await db.query(
+      'SELECT id FROM customers WHERE barbershop_id = ? AND phone = ? LIMIT 1',
+      [barbershopId, customer_phone]
+    );
+
+    if (customerRows.length) {
+      customerId = customerRows[0].id;
+    } else {
+      const [customerResult] = await db.query(
+        'INSERT INTO customers (barbershop_id, name, phone, email) VALUES (?, ?, ?, ?)',
+        [barbershopId, customer_name, customer_phone, customer_email || null]
+      );
+      customerId = customerResult.insertId;
+    }
+
+    const [conflict] = await db.query(
+      `SELECT id FROM appointments
+       WHERE barber_id = ? AND appointment_date = ? AND appointment_time = ? AND status != 'cancelled'`,
+      [barber_id, appointment_date, appointment_time]
+    );
+    if (conflict.length) {
+      return res.status(409).json({ error: 'Horario ja ocupado para este barbeiro' });
+    }
+
+    const [result] = await db.query(
+      `INSERT INTO appointments
+       (barbershop_id, barber_id, customer_id, service_id, appointment_date, appointment_time)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [barbershopId, barber_id, customerId, service_id, appointment_date, appointment_time]
+    );
+    res.status(201).json({ id: result.insertId, appointment_date, appointment_time, status: 'pending' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/', authenticateToken, async (req, res) => {
   const { barber_id, date, status } = req.query;
   try {
