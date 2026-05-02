@@ -13,7 +13,7 @@ const isBcryptHash = (value) => typeof value === 'string' && (value.startsWith('
 
 // POST /api/auth/login
 router.post('/login', async (req, res) => {
-  const { email, password } = req.body;
+  const { email, password, rememberMe } = req.body;
 
   if (!email || !password) {
     return res.status(400).json({ error: 'Campos obrigatorios: email, password' });
@@ -57,7 +57,7 @@ router.post('/login', async (req, res) => {
     const token = jwt.sign(
       { id: barbershop.id, email: barbershop.email, name: barbershop.name },
       process.env.JWT_SECRET,
-      { expiresIn: '7d' },
+      { expiresIn: rememberMe ? '30d' : '1d' },
     );
 
     res.json({
