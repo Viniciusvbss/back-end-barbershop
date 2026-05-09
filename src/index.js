@@ -3,6 +3,7 @@ loadEnv();
 
 const express = require('express');
 const cors = require('cors');
+const { PUBLIC_UPLOAD_PREFIX, UPLOAD_ROOT } = require('./utils/uploads');
 const app = express();
 
 const allowedOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
@@ -25,6 +26,7 @@ app.options(/.*/, (req, res) => {
   res.end();
 });
 app.use(express.json());
+app.use(PUBLIC_UPLOAD_PREFIX, express.static(UPLOAD_ROOT));
 
 // Routes
 app.use('/api/auth', require('./routes/auth'));

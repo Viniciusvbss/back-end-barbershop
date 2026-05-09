@@ -1,8 +1,16 @@
 ﻿const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const db = require('../config/db');
 const authenticateToken = require('../middleware/auth');
+const {
+  createImageUpload,
+  deleteUploadedFile,
+  getPublicUploadUrl,
+  getUploadErrorMessage,
+  runUpload,
+} = require('../utils/uploads');
 const {
   DEFAULT_BRAND_PRIMARY_COLOR,
   DEFAULT_BRAND_SECONDARY_COLOR,
@@ -15,6 +23,7 @@ const {
 } = require('../utils/barbershopSettings');
 
 const getErrorMessage = (error) => error?.message || 'Erro interno do servidor';
+const uploadLogo = createImageUpload('barbershops', 'logo');
 
 const parseBoolean = (value, fieldName) => {
   if (typeof value === 'boolean') return value;
@@ -339,6 +348,7 @@ router.post('/', async (req, res) => {
     const [result] = await db.query(
       `INSERT INTO barbershops (
         name,
+        uuid,
         slug,
         phone,
         email,
@@ -355,9 +365,10 @@ router.post('/', async (req, res) => {
         notifications_daily_summary_enabled,
         notifications_daily_summary_time,
         password_updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
       [
         normalizedName,
+        crypto.randomUUID(),
         normalizedSlug,
         normalizedPhone || null,
         normalizedEmail,
@@ -482,6 +493,71 @@ router.put('/:id', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: err.message });
     }
 
+    res.status(500).json({ error: getErrorMessage(err) });
+  }
+});
+
+// POST /api/barbershops/:id/logo - PROTECTED
+router.post('/:id/logo', authenticateToken, async (req, res) => {
+  const barbershopId = ensureOwnBarbershop(req, res);
+  if (!barbershopId) return;
+
+  try {
+    await runUpload(uploadLogo, req, res);
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'Envie uma imagem para a logo.' });
+    }
+
+    await ensureBarbershopSettingsColumns(db);
+    const currentBarbershop = await readBarbershopById(barbershopId);
+    if (!currentBarbershop) {
+      await deleteUploadedFile(getPublicUploadUrl('barbershops', req.file.filename));
+      return res.status(404).json({ error: 'Barbearia nao encontrada' });
+    }
+
+    const nextLogoUrl = getPublicUploadUrl('barbershops', req.file.filename);
+
+    await db.query(
+      'UPDATE barbershops SET logo_url = ? WHERE id = ?',
+      [nextLogoUrl, barbershopId],
+    );
+
+    await deleteUploadedFile(currentBarbershop.logo_url);
+
+    const updatedBarbershop = await readBarbershopById(barbershopId);
+    res.json(updatedBarbershop);
+  } catch (err) {
+    if (req.file) {
+      await deleteUploadedFile(getPublicUploadUrl('barbershops', req.file.filename));
+    }
+
+    res.status(400).json({ error: getUploadErrorMessage(err) });
+  }
+});
+
+// DELETE /api/barbershops/:id/logo - PROTECTED
+router.delete('/:id/logo', authenticateToken, async (req, res) => {
+  const barbershopId = ensureOwnBarbershop(req, res);
+  if (!barbershopId) return;
+
+  try {
+    await ensureBarbershopSettingsColumns(db);
+    const currentBarbershop = await readBarbershopById(barbershopId);
+    if (!currentBarbershop) {
+      return res.status(404).json({ error: 'Barbearia nao encontrada' });
+    }
+
+    await db.query(
+      'UPDATE barbershops SET logo_url = NULL WHERE id = ?',
+      [barbershopId],
+    );
+
+    await deleteUploadedFile(currentBarbershop.logo_url);
+
+    const updatedBarbershop = await readBarbershopById(barbershopId);
+    res.json(updatedBarbershop);
+  } catch (err) {
     res.status(500).json({ error: getErrorMessage(err) });
   }
 });
