@@ -13,14 +13,6 @@ const {
 
 const RESET_TOKEN_MINUTES = 30;
 
-const getProtectedBarbershop = (barbershop) => {
-  const normalized = normalizeBarbershopRow(barbershop);
-  return {
-    ...normalized,
-    logo_url: normalized.logo_url ? `/api/barbershops/${normalized.id}/logo` : null,
-  };
-};
-
 const isBcryptHash = (value) => (
   typeof value === 'string' && (value.startsWith('$2a$') || value.startsWith('$2b$'))
 );
@@ -130,7 +122,7 @@ router.post('/login', async (req, res) => {
 
     res.json({
       token,
-      barbershop: getProtectedBarbershop(barbershop),
+      barbershop: normalizeBarbershopRow(barbershop),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

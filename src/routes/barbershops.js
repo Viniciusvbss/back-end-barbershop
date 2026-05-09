@@ -11,7 +11,6 @@ const {
   getPublicUploadUrl,
   getUploadErrorMessage,
   runUpload,
-  streamUploadedFile,
 } = require('../utils/uploads');
 const {
   DEFAULT_BRAND_PRIMARY_COLOR,
@@ -94,16 +93,6 @@ const readBarbershopById = async (id) => {
 
   return normalizeBarbershopRow(rows[0]);
 };
-
-const getProtectedLogoUrl = (barbershop) => ({
-  ...barbershop,
-  logo_url: barbershop.logo_url ? `/api/barbershops/${barbershop.id}/logo` : null,
-});
-
-const omitPrivateLogoUrl = (barbershop) => ({
-  ...barbershop,
-  logo_url: null,
-});
 
 const ensureOwnBarbershop = (req, res) => {
   const requestedId = Number(req.params.id);
@@ -283,7 +272,7 @@ router.get('/', async (req, res) => {
       `SELECT ${getPublicBarbershopSelectFields()} FROM barbershops`,
     );
 
-    res.json(rows.map((row) => omitPrivateLogoUrl(normalizeBarbershopRow(row))));
+    res.json(rows.map((row) => normalizeBarbershopRow(row)));
   } catch (err) {
     res.status(500).json({ error: getErrorMessage(err) });
   }
@@ -303,7 +292,7 @@ router.get('/slug/:slug', async (req, res) => {
       return res.status(404).json({ error: 'Barbearia nao encontrada' });
     }
 
-    res.json(omitPrivateLogoUrl(normalizeBarbershopRow(rows[0])));
+    res.json(normalizeBarbershopRow(rows[0]));
   } catch (err) {
     res.status(500).json({ error: getErrorMessage(err) });
   }
@@ -322,7 +311,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Barbearia nao encontrada' });
     }
 
-    res.json(getProtectedLogoUrl(barbershop));
+    res.json(barbershop);
   } catch (err) {
     res.status(500).json({ error: getErrorMessage(err) });
   }
@@ -400,7 +389,7 @@ router.post('/', async (req, res) => {
     );
 
     const createdBarbershop = await readBarbershopById(result.insertId);
-    res.status(201).json(getProtectedLogoUrl(createdBarbershop));
+    res.status(201).json(createdBarbershop);
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY') {
       return res.status(409).json({ error: 'Slug ou email ja cadastrado' });
@@ -495,7 +484,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
     );
 
     const updatedBarbershop = await readBarbershopById(barbershopId);
-    res.json(getProtectedLogoUrl(updatedBarbershop));
+    res.json(updatedBarbershop);
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY') {
       return res.status(409).json({ error: 'Slug ou email ja cadastrado' });
@@ -505,24 +494,6 @@ router.put('/:id', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: err.message });
     }
 
-    res.status(500).json({ error: getErrorMessage(err) });
-  }
-});
-
-// GET /api/barbershops/:id/logo - PROTECTED
-router.get('/:id/logo', authenticateToken, async (req, res) => {
-  const barbershopId = ensureOwnBarbershop(req, res);
-  if (!barbershopId) return;
-
-  try {
-    await ensureBarbershopSettingsColumns(db);
-    const currentBarbershop = await readBarbershopById(barbershopId);
-    if (!currentBarbershop?.logo_url) {
-      return res.status(404).json({ error: 'Logo nao encontrada' });
-    }
-
-    await streamUploadedFile(currentBarbershop.logo_url, res);
-  } catch (err) {
     res.status(500).json({ error: getErrorMessage(err) });
   }
 });
@@ -556,7 +527,7 @@ router.post('/:id/logo', authenticateToken, async (req, res) => {
     await deleteUploadedFile(currentBarbershop.logo_url);
 
     const updatedBarbershop = await readBarbershopById(barbershopId);
-    res.json(getProtectedLogoUrl(updatedBarbershop));
+    res.json(updatedBarbershop);
   } catch (err) {
     await cleanupUploadedRequestFile(req);
 
@@ -584,7 +555,7 @@ router.delete('/:id/logo', authenticateToken, async (req, res) => {
     await deleteUploadedFile(currentBarbershop.logo_url);
 
     const updatedBarbershop = await readBarbershopById(barbershopId);
-    res.json(getProtectedLogoUrl(updatedBarbershop));
+    res.json(updatedBarbershop);
   } catch (err) {
     res.status(500).json({ error: getErrorMessage(err) });
   }
