@@ -3,11 +3,13 @@ const router = express.Router();
 const db = require('../config/db');
 const authenticateToken = require('../middleware/auth');
 const {
+  cleanupUploadedRequestFile,
   createImageUpload,
   deleteUploadedFile,
   getPublicUploadUrl,
   getUploadErrorMessage,
   runUpload,
+  streamUploadedFile,
 } = require('../utils/uploads');
 
 const uploadBarberImage = createImageUpload('barbers', 'image');
@@ -30,6 +32,16 @@ const ensureBarberImageColumn = async () => {
   return schemaReadyPromise;
 };
 
+const hidePrivateImageUrl = (barber) => ({
+  ...barber,
+  image_url: barber.image_url ? `/api/barbers/${barber.id}/image` : null,
+});
+
+const omitPrivateImageUrl = (barber) => ({
+  ...barber,
+  image_url: null,
+});
+
 // GET /api/barbers/public/:slug - PUBLIC
 router.get('/public/:slug', async (req, res) => {
   try {
@@ -41,7 +53,7 @@ router.get('/public/:slug', async (req, res) => {
        ORDER BY br.id`,
       [req.params.slug],
     );
-    res.json(rows);
+    res.json(rows.map(omitPrivateImageUrl));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -55,7 +67,7 @@ router.get('/', authenticateToken, async (req, res) => {
       'SELECT * FROM barbers WHERE barbershop_id = ?',
       [req.barbershop.id],
     );
-    res.json(rows);
+    res.json(rows.map(hidePrivateImageUrl));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -70,7 +82,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
       [req.params.id, req.barbershop.id],
     );
     if (!rows.length) return res.status(404).json({ error: 'Barbeiro nao encontrado' });
-    res.json(rows[0]);
+    res.json(hidePrivateImageUrl(rows[0]));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -83,12 +95,12 @@ router.post('/', authenticateToken, async (req, res) => {
 
     const { name, phone } = req.body;
     if (!name) {
-      if (req.file) await deleteUploadedFile(getPublicUploadUrl('barbers', req.file.filename));
+      await cleanupUploadedRequestFile(req);
       return res.status(400).json({ error: 'Campos obrigatorios: name' });
     }
 
     await ensureBarberImageColumn();
-    const imageUrl = req.file ? getPublicUploadUrl('barbers', req.file.filename) : null;
+    const imageUrl = req.file ? getPublicUploadUrl('barbers', req.file) : null;
     const [result] = await db.query(
       'INSERT INTO barbers (barbershop_id, name, phone, image_url) VALUES (?, ?, ?, ?)',
       [req.barbershop.id, name, phone || null, imageUrl],
@@ -98,9 +110,9 @@ router.post('/', authenticateToken, async (req, res) => {
       'SELECT * FROM barbers WHERE id = ? AND barbershop_id = ?',
       [result.insertId, req.barbershop.id],
     );
-    res.status(201).json(rows[0]);
+    res.status(201).json(hidePrivateImageUrl(rows[0]));
   } catch (err) {
-    if (req.file) await deleteUploadedFile(getPublicUploadUrl('barbers', req.file.filename));
+    await cleanupUploadedRequestFile(req);
     res.status(400).json({ error: getUploadErrorMessage(err) });
   }
 });
@@ -116,7 +128,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
       [req.params.id, req.barbershop.id],
     );
     if (!currentRows.length) {
-      if (req.file) await deleteUploadedFile(getPublicUploadUrl('barbers', req.file.filename));
+      await cleanupUploadedRequestFile(req);
       return res.status(404).json({ error: 'Barbeiro nao encontrado' });
     }
 
@@ -136,7 +148,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
 
     if (req.file) {
       updates.push('image_url = ?');
-      values.push(getPublicUploadUrl('barbers', req.file.filename));
+      values.push(getPublicUploadUrl('barbers', req.file));
     }
 
     if (updates.length) {
@@ -153,10 +165,29 @@ router.put('/:id', authenticateToken, async (req, res) => {
       'SELECT * FROM barbers WHERE id = ? AND barbershop_id = ?',
       [req.params.id, req.barbershop.id],
     );
-    res.json(updatedRows[0]);
+    res.json(hidePrivateImageUrl(updatedRows[0]));
   } catch (err) {
-    if (req.file) await deleteUploadedFile(getPublicUploadUrl('barbers', req.file.filename));
+    await cleanupUploadedRequestFile(req);
     res.status(400).json({ error: getUploadErrorMessage(err) });
+  }
+});
+
+// GET /api/barbers/:id/image - PROTECTED
+router.get('/:id/image', authenticateToken, async (req, res) => {
+  try {
+    await ensureBarberImageColumn();
+    const [rows] = await db.query(
+      'SELECT image_url FROM barbers WHERE id = ? AND barbershop_id = ?',
+      [req.params.id, req.barbershop.id],
+    );
+
+    if (!rows.length || !rows[0].image_url) {
+      return res.status(404).json({ error: 'Imagem nao encontrada' });
+    }
+
+    await streamUploadedFile(rows[0].image_url, res);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
