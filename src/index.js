@@ -36,6 +36,7 @@ app.use('/api/services', require('./routes/services'));
 app.use('/api/customers', require('./routes/customers'));
 app.use('/api/appointments', require('./routes/appointments'));
 app.use('/api/business-hours', require('./routes/businessHours'));
+app.use('/api/privacy', require('./routes/privacy'));
 
 app.get('/', (req, res) => {
   res.json({ message: 'Barbershop SaaS API', version: '1.0.0' });

@@ -69,8 +69,8 @@ router.put('/:id', authenticateToken, async (req, res) => {
   const { name, duration_minutes, price } = req.body;
   try {
     const [result] = await db.query(
-      'UPDATE services SET name = ?, duration_minutes = ?, price = ? WHERE id = ?',
-      [name, duration_minutes, price, req.params.id]
+      'UPDATE services SET name = ?, duration_minutes = ?, price = ? WHERE id = ? AND barbershop_id = ?',
+      [name, duration_minutes, price, req.params.id, req.barbershop.id]
     );
     if (!result.affectedRows) return res.status(404).json({ error: 'Serviço não encontrado' });
     res.json({ message: 'Serviço atualizado com sucesso' });
@@ -82,7 +82,10 @@ router.put('/:id', authenticateToken, async (req, res) => {
 // DELETE /api/services/:id — PROTECTED
 router.delete('/:id', authenticateToken, async (req, res) => {
   try {
-    const [result] = await db.query('DELETE FROM services WHERE id = ?', [req.params.id]);
+    const [result] = await db.query(
+      'DELETE FROM services WHERE id = ? AND barbershop_id = ?',
+      [req.params.id, req.barbershop.id]
+    );
     if (!result.affectedRows) return res.status(404).json({ error: 'Serviço não encontrado' });
     res.json({ message: 'Serviço removido com sucesso' });
   } catch (err) {

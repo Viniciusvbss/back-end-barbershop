@@ -79,8 +79,8 @@ router.put('/:id', authenticateToken, async (req, res) => {
   const { weekday, open_time, close_time } = req.body;
   try {
     const [result] = await db.query(
-      'UPDATE business_hours SET weekday = ?, open_time = ?, close_time = ? WHERE id = ?',
-      [weekday, open_time, close_time, req.params.id]
+      'UPDATE business_hours SET weekday = ?, open_time = ?, close_time = ? WHERE id = ? AND barbershop_id = ?',
+      [weekday, open_time, close_time, req.params.id, req.barbershop.id]
     );
     if (!result.affectedRows) return res.status(404).json({ error: 'Horário não encontrado' });
     res.json({ message: 'Horário atualizado com sucesso' });
@@ -92,7 +92,10 @@ router.put('/:id', authenticateToken, async (req, res) => {
 // DELETE /api/business-hours/:id — PROTECTED
 router.delete('/:id', authenticateToken, async (req, res) => {
   try {
-    const [result] = await db.query('DELETE FROM business_hours WHERE id = ?', [req.params.id]);
+    const [result] = await db.query(
+      'DELETE FROM business_hours WHERE id = ? AND barbershop_id = ?',
+      [req.params.id, req.barbershop.id]
+    );
     if (!result.affectedRows) return res.status(404).json({ error: 'Horário não encontrado' });
     res.json({ message: 'Horário removido com sucesso' });
   } catch (err) {

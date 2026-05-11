@@ -22,6 +22,12 @@ const {
   getPublicBarbershopSelectFields,
   normalizeBarbershopRow,
 } = require('../utils/barbershopSettings');
+const {
+  PRIVACY_POLICY_VERSION,
+  TERMS_VERSION,
+  ensurePrivacySchema,
+  recordConsentLog,
+} = require('../utils/privacy');
 
 const getErrorMessage = (error) => error?.message || 'Erro interno do servidor';
 const uploadLogo = createImageUpload('barbershops', 'logo');
@@ -263,6 +269,11 @@ const validateNotificationSettings = (currentBarbershop, updates) => {
   }
 };
 
+const tableExists = async (connection, tableName) => {
+  const [rows] = await connection.query('SHOW TABLES LIKE ?', [tableName]);
+  return rows.length > 0;
+};
+
 // GET /api/barbershops - PUBLIC: List all barbershops
 router.get('/', async (req, res) => {
   try {
@@ -319,14 +330,19 @@ router.get('/:id', authenticateToken, async (req, res) => {
 
 // POST /api/barbershops - PUBLIC: Register a new barbershop
 router.post('/', async (req, res) => {
-  const { name, slug, phone, email, password } = req.body;
+  const { name, slug, phone, email, password, privacy_policy_accepted, terms_accepted } = req.body;
 
   if (!name || !slug || !email || !password) {
     return res.status(400).json({ error: 'Campos obrigatorios: name, slug, email, password' });
   }
 
+  if (!privacy_policy_accepted || !terms_accepted) {
+    return res.status(400).json({ error: 'Aceite os Termos de Uso e a Politica de Privacidade para continuar.' });
+  }
+
   try {
     await ensureBarbershopSettingsColumns(db);
+    await ensurePrivacySchema(db);
 
     const hashedPassword = await bcrypt.hash(password, 12);
     const normalizedName = String(name).trim();
@@ -365,8 +381,12 @@ router.post('/', async (req, res) => {
         notifications_reminder_hours,
         notifications_daily_summary_enabled,
         notifications_daily_summary_time,
+        privacy_policy_accepted_at,
+        privacy_policy_version,
+        terms_accepted_at,
+        terms_version,
         password_updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, NOW(), ?, NOW())`,
       [
         normalizedName,
         crypto.randomUUID(),
@@ -385,8 +405,19 @@ router.post('/', async (req, res) => {
         DEFAULT_REMINDER_HOURS,
         0,
         DEFAULT_DAILY_SUMMARY_TIME,
+        PRIVACY_POLICY_VERSION,
+        TERMS_VERSION,
       ],
     );
+
+    await recordConsentLog(db, req, {
+      barbershopId: result.insertId,
+      holderType: 'barbershop',
+      holderId: result.insertId,
+      action: 'terms_and_privacy_accepted',
+      policyVersion: PRIVACY_POLICY_VERSION,
+      termsVersion: TERMS_VERSION,
+    });
 
     const createdBarbershop = await readBarbershopById(result.insertId);
     res.status(201).json(createdBarbershop);
@@ -566,12 +597,54 @@ router.delete('/:id', authenticateToken, async (req, res) => {
   const barbershopId = ensureOwnBarbershop(req, res);
   if (!barbershopId) return;
 
+  const connection = await db.getConnection();
   try {
-    const [result] = await db.query('DELETE FROM barbershops WHERE id = ?', [barbershopId]);
-    if (!result.affectedRows) return res.status(404).json({ error: 'Barbearia nao encontrada' });
+    await connection.beginTransaction();
+
+    const [logoRows] = await connection.query(
+      'SELECT logo_url FROM barbershops WHERE id = ?',
+      [barbershopId],
+    );
+
+    const [barberImageRows] = await connection.query(
+      'SELECT image_url FROM barbers WHERE barbershop_id = ? AND image_url IS NOT NULL',
+      [barbershopId],
+    );
+
+    await connection.query('DELETE FROM appointments WHERE barbershop_id = ?', [barbershopId]);
+    await connection.query('DELETE FROM business_hours WHERE barbershop_id = ?', [barbershopId]);
+    await connection.query('DELETE FROM services WHERE barbershop_id = ?', [barbershopId]);
+    await connection.query('DELETE FROM barbers WHERE barbershop_id = ?', [barbershopId]);
+    await connection.query('DELETE FROM customers WHERE barbershop_id = ?', [barbershopId]);
+    if (await tableExists(connection, 'password_resets')) {
+      await connection.query('DELETE FROM password_resets WHERE barbershop_id = ?', [barbershopId]);
+    }
+    if (await tableExists(connection, 'privacy_requests')) {
+      await connection.query('DELETE FROM privacy_requests WHERE barbershop_id = ?', [barbershopId]);
+    }
+    if (await tableExists(connection, 'consent_logs')) {
+      await connection.query('DELETE FROM consent_logs WHERE barbershop_id = ?', [barbershopId]);
+    }
+
+    const [result] = await connection.query('DELETE FROM barbershops WHERE id = ?', [barbershopId]);
+    if (!result.affectedRows) {
+      await connection.rollback();
+      return res.status(404).json({ error: 'Barbearia nao encontrada' });
+    }
+
+    await connection.commit();
+
+    await Promise.all([
+      ...logoRows.map((row) => deleteUploadedFile(row.logo_url)),
+      ...barberImageRows.map((row) => deleteUploadedFile(row.image_url)),
+    ]);
+
     res.json({ message: 'Barbearia removida com sucesso' });
   } catch (err) {
+    await connection.rollback();
     res.status(500).json({ error: getErrorMessage(err) });
+  } finally {
+    connection.release();
   }
 });
 

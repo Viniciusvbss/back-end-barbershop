@@ -16,6 +16,10 @@ const SETTINGS_COLUMNS = [
   { name: 'notifications_daily_summary_enabled', definition: 'TINYINT(1) NOT NULL DEFAULT 0' },
   { name: 'notifications_daily_summary_time', definition: "VARCHAR(5) NOT NULL DEFAULT '19:00'" },
   { name: 'password_updated_at', definition: 'DATETIME NULL' },
+  { name: 'privacy_policy_accepted_at', definition: 'DATETIME NULL' },
+  { name: 'privacy_policy_version', definition: 'VARCHAR(32) NULL' },
+  { name: 'terms_accepted_at', definition: 'DATETIME NULL' },
+  { name: 'terms_version', definition: 'VARCHAR(32) NULL' },
   { name: 'updated_at', definition: 'TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP' },
 ];
 
@@ -73,6 +77,10 @@ const getBarbershopSelectFields = (alias = '') => {
     `${prefix}notifications_daily_summary_enabled`,
     `${prefix}notifications_daily_summary_time`,
     `${prefix}password_updated_at`,
+    `${prefix}privacy_policy_accepted_at`,
+    `${prefix}privacy_policy_version`,
+    `${prefix}terms_accepted_at`,
+    `${prefix}terms_version`,
     `${prefix}create_at AS created_at`,
     `${prefix}updated_at`,
   ].join(', ');
@@ -142,6 +150,10 @@ const normalizeBarbershopRow = (row = {}) => ({
     DEFAULT_DAILY_SUMMARY_TIME,
   ),
   password_updated_at: row.password_updated_at || null,
+  privacy_policy_accepted_at: row.privacy_policy_accepted_at || null,
+  privacy_policy_version: row.privacy_policy_version || null,
+  terms_accepted_at: row.terms_accepted_at || null,
+  terms_version: row.terms_version || null,
   created_at: row.created_at || row.create_at || null,
   updated_at: row.updated_at || null,
 });
