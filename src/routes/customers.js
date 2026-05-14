@@ -90,7 +90,12 @@ router.put('/:id', authenticateToken, async (req, res) => {
     );
 
     if (!result.affectedRows) return res.status(404).json({ error: 'Cliente nao encontrado' });
-    res.json({ message: 'Cliente atualizado com sucesso' });
+
+    const [rows] = await db.query(
+      `SELECT ${CUSTOMER_SELECT} FROM customers WHERE id = ? AND barbershop_id = ?`,
+      [req.params.id, req.barbershop.id],
+    );
+    res.json(rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
