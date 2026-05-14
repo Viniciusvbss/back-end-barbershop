@@ -33,6 +33,42 @@ router.get('/public/:slug', async (req, res) => {
   }
 });
 
+// POST /api/appointments/public/:slug/lookup
+// Permite que o cliente consulte os próprios agendamentos pelo telefone usado
+// no agendamento. Comparação ignora máscara para casar "(11) 99999-9999"
+// com "11999999999" e variações.
+router.post('/public/:slug/lookup', async (req, res) => {
+  const rawPhone = typeof req.body.phone === 'string' ? req.body.phone : '';
+  const digits = rawPhone.replace(/\D/g, '');
+
+  if (digits.length < 10 || digits.length > 11) {
+    return res.status(400).json({ error: 'Informe um telefone valido com DDD.' });
+  }
+
+  try {
+    const [rows] = await db.query(
+      `SELECT
+         a.id, a.appointment_date, a.appointment_time, a.status, a.created_at,
+         c.name AS customer_name,
+         b.name AS barber_name,
+         s.name AS service_name, s.duration_minutes, s.price
+       FROM appointments a
+       JOIN barbershops bs ON a.barbershop_id = bs.id
+       JOIN customers c ON a.customer_id = c.id
+       JOIN barbers b ON a.barber_id = b.id
+       JOIN services s ON a.service_id = s.id
+       WHERE bs.slug = ?
+         AND REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(c.phone, '(', ''), ')', ''), '-', ''), ' ', ''), '+', '') = ?
+       ORDER BY a.appointment_date DESC, a.appointment_time DESC`,
+      [req.params.slug, digits],
+    );
+
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.post('/public/:slug', async (req, res) => {
   const {
     barber_id,
