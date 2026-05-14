@@ -48,10 +48,15 @@ router.get('/:id', authenticateToken, async (req, res) => {
 // POST /api/services — PROTECTED: barbershop_id from token
 router.post('/', authenticateToken, async (req, res) => {
   const { name, duration_minutes, price } = req.body;
-  if (!name || !duration_minutes || price === undefined) {
+  // duration_minutes = 0 representa item adicional (sem bloquear agenda),
+  // por isso usamos checagem explícita de null/undefined em vez de !value.
+  if (!name || duration_minutes == null || price === undefined) {
     return res.status(400).json({
       error: 'Campos obrigatórios: name, duration_minutes, price',
     });
+  }
+  if (Number(duration_minutes) < 0) {
+    return res.status(400).json({ error: 'duration_minutes não pode ser negativo' });
   }
   try {
     const [result] = await db.query(
@@ -67,13 +72,21 @@ router.post('/', authenticateToken, async (req, res) => {
 // PUT /api/services/:id — PROTECTED
 router.put('/:id', authenticateToken, async (req, res) => {
   const { name, duration_minutes, price } = req.body;
+  if (duration_minutes != null && Number(duration_minutes) < 0) {
+    return res.status(400).json({ error: 'duration_minutes não pode ser negativo' });
+  }
   try {
     const [result] = await db.query(
       'UPDATE services SET name = ?, duration_minutes = ?, price = ? WHERE id = ? AND barbershop_id = ?',
       [name, duration_minutes, price, req.params.id, req.barbershop.id]
     );
     if (!result.affectedRows) return res.status(404).json({ error: 'Serviço não encontrado' });
-    res.json({ message: 'Serviço atualizado com sucesso' });
+
+    const [rows] = await db.query(
+      'SELECT * FROM services WHERE id = ? AND barbershop_id = ?',
+      [req.params.id, req.barbershop.id],
+    );
+    res.json(rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
