@@ -79,7 +79,7 @@ const normalizeLogoValue = (value) => {
   }
 
   if (trimmed.length > 4 * 1024 * 1024) {
-    throw new Error('Logo muito grande. Reduza o arquivo para ate 2 MB.');
+    throw new Error('Logo muito grande. Reduza o arquivo para ate 20 MB.');
   }
 
   return trimmed;

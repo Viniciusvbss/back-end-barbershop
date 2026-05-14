@@ -1,12 +1,17 @@
 const crypto = require('crypto');
-const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
-const { v2: cloudinary } = require('cloudinary');
+const {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  DeleteObjectCommand,
+} = require('@aws-sdk/client-s3');
+const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 
-const UPLOAD_ROOT = path.resolve(__dirname, '..', '..', 'uploads');
 const PUBLIC_UPLOAD_PREFIX = '/uploads';
-const MAX_IMAGE_SIZE_BYTES = 2 * 1024 * 1024;
+const MAX_IMAGE_SIZE_BYTES = 20 * 1024 * 1024;
+const PRESIGNED_GET_TTL_SECONDS = 300;
 
 const EXTENSIONS_BY_MIME = {
   'image/png': '.png',
@@ -15,34 +20,30 @@ const EXTENSIONS_BY_MIME = {
   'image/svg+xml': '.svg',
 };
 
-const hasCloudinaryConfig = () => (
-  !!process.env.CLOUDINARY_CLOUD_NAME &&
-  !!process.env.CLOUDINARY_API_KEY &&
-  !!process.env.CLOUDINARY_API_SECRET
-);
+let cachedS3Client = null;
 
-const configureCloudinary = () => {
-  if (!hasCloudinaryConfig()) return false;
+const getBucketName = () => {
+  const bucket = process.env.AWS_BUCKET_NAME;
+  if (!bucket) {
+    throw new Error('AWS_BUCKET_NAME nao configurado.');
+  }
+  return bucket;
+};
 
-  cloudinary.config({
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET,
-    secure: true,
+const getS3Client = () => {
+  if (cachedS3Client) return cachedS3Client;
+
+  cachedS3Client = new S3Client({
+    region: process.env.AWS_REGION || 'auto',
+    endpoint: process.env.AWS_ENDPOINT_URL,
+    credentials: {
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+    },
+    forcePathStyle: true,
   });
 
-  return true;
-};
-
-const ensureDirectory = async (directory) => {
-  await fs.promises.mkdir(directory, { recursive: true });
-};
-
-const getLocalPublicUrl = (folder, filename) => `${PUBLIC_UPLOAD_PREFIX}/${folder}/${filename}`;
-
-const getCloudinaryFolder = (folder) => {
-  const root = process.env.CLOUDINARY_FOLDER || 'barber-saas';
-  return `${root.replace(/\/$/, '')}/${folder}`;
+  return cachedS3Client;
 };
 
 const validateImageFile = (file) => {
@@ -51,39 +52,9 @@ const validateImageFile = (file) => {
   }
 };
 
-const createMemoryUpload = (fieldName) => multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: MAX_IMAGE_SIZE_BYTES },
-  fileFilter: (req, file, cb) => {
-    try {
-      validateImageFile(file);
-      cb(null, true);
-    } catch (error) {
-      cb(error);
-    }
-  },
-}).single(fieldName);
-
-const createDiskUpload = (folder, fieldName) => {
-  const destination = path.join(UPLOAD_ROOT, folder);
-
-  const storage = multer.diskStorage({
-    destination: async (req, file, cb) => {
-      try {
-        await ensureDirectory(destination);
-        cb(null, destination);
-      } catch (error) {
-        cb(error);
-      }
-    },
-    filename: (req, file, cb) => {
-      const extension = EXTENSIONS_BY_MIME[file.mimetype] || path.extname(file.originalname).toLowerCase();
-      cb(null, `${crypto.randomUUID()}${extension}`);
-    },
-  });
-
-  return multer({
-    storage,
+const createImageUpload = (folder, fieldName = 'image') => {
+  const upload = multer({
+    storage: multer.memoryStorage(),
     limits: { fileSize: MAX_IMAGE_SIZE_BYTES },
     fileFilter: (req, file, cb) => {
       try {
@@ -94,56 +65,39 @@ const createDiskUpload = (folder, fieldName) => {
       }
     },
   }).single(fieldName);
-};
-
-const createImageUpload = (folder, fieldName = 'image') => {
-  const upload = hasCloudinaryConfig()
-    ? createMemoryUpload(fieldName)
-    : createDiskUpload(folder, fieldName);
 
   upload.storageFolder = folder;
-
   return upload;
 };
 
-const uploadBufferToCloudinary = (file, folder) =>
-  new Promise((resolve, reject) => {
-    const resourceType = file.mimetype === 'image/svg+xml' ? 'image' : 'auto';
-    const publicId = crypto.randomUUID();
+const buildObjectKey = (folder, file) => {
+  const extension = EXTENSIONS_BY_MIME[file.mimetype] || path.extname(file.originalname).toLowerCase();
+  return `${folder}/${crypto.randomUUID()}${extension}`;
+};
 
-    const stream = cloudinary.uploader.upload_stream(
-      {
-        folder: getCloudinaryFolder(folder),
-        public_id: publicId,
-        resource_type: resourceType,
-      },
-      (error, result) => {
-        if (error) {
-          reject(error);
-          return;
-        }
+// Path armazenado no DB. Mantém o mesmo contrato do sistema anterior, então o front
+// continua resolvendo via VITE_API_URL sem mudanças.
+const getRelativePublicPath = (key) => `${PUBLIC_UPLOAD_PREFIX}/${key}`;
 
-        resolve(result);
-      },
-    );
+const uploadBufferToBucket = async (file, folder) => {
+  const key = buildObjectKey(folder, file);
 
-    stream.end(file.buffer);
-  });
+  await getS3Client().send(new PutObjectCommand({
+    Bucket: getBucketName(),
+    Key: key,
+    Body: file.buffer,
+    ContentType: file.mimetype,
+  }));
+
+  return key;
+};
 
 const attachUploadedImageUrl = async (req, upload) => {
   if (!req.file) return;
 
-  if (hasCloudinaryConfig()) {
-    configureCloudinary();
-    const result = await uploadBufferToCloudinary(req.file, upload.storageFolder);
-    req.file.publicUrl = result.secure_url;
-    req.file.storageProvider = 'cloudinary';
-    req.file.publicId = result.public_id;
-    return;
-  }
-
-  req.file.publicUrl = getLocalPublicUrl(upload.storageFolder, req.file.filename);
-  req.file.storageProvider = 'local';
+  const key = await uploadBufferToBucket(req.file, upload.storageFolder);
+  req.file.objectKey = key;
+  req.file.publicUrl = getRelativePublicPath(key);
 };
 
 const runUpload = (upload, req, res) =>
@@ -168,119 +122,55 @@ const getPublicUploadUrl = (folder, filenameOrFile) => {
     return filenameOrFile.publicUrl;
   }
 
-  return getLocalPublicUrl(folder, filenameOrFile);
+  return `${PUBLIC_UPLOAD_PREFIX}/${folder}/${filenameOrFile}`;
 };
 
-const getCloudinaryPublicId = (publicUrl) => {
-  if (typeof publicUrl !== 'string' || !publicUrl.includes('res.cloudinary.com')) return null;
+// Converte `/uploads/barbers/uuid.jpg` -> `barbers/uuid.jpg`. Retorna null para
+// qualquer entrada que não casa com o formato esperado (inclui URLs absolutas
+// legadas do Cloudinary, que continuam servíveis pelo próprio resolveMediaUrl
+// do front mas não são objetos do nosso bucket).
+const getTigrisObjectKey = (publicUrl) => {
+  if (typeof publicUrl !== 'string' || !publicUrl.trim()) return null;
 
-  try {
-    const pathname = new URL(publicUrl).pathname;
-    const uploadMarker = '/upload/';
-    const uploadIndex = pathname.indexOf(uploadMarker);
-    if (uploadIndex === -1) return null;
+  const trimmed = publicUrl.trim();
+  if (!trimmed.startsWith(`${PUBLIC_UPLOAD_PREFIX}/`)) return null;
 
-    let publicIdWithExtension = pathname.slice(uploadIndex + uploadMarker.length);
-    publicIdWithExtension = publicIdWithExtension.replace(/^v\d+\//, '');
-
-    return publicIdWithExtension.replace(/\.[a-z0-9]+$/i, '');
-  } catch {
-    return null;
-  }
+  return trimmed.slice(PUBLIC_UPLOAD_PREFIX.length + 1);
 };
 
-const getLocalUploadPath = (publicUrl) => {
-  let pathname = publicUrl.trim();
+const signTigrisGetUrl = async (key, expiresIn = PRESIGNED_GET_TTL_SECONDS) => {
+  const command = new GetObjectCommand({
+    Bucket: getBucketName(),
+    Key: key,
+  });
 
-  try {
-    pathname = new URL(pathname).pathname;
-  } catch {
-    // Relative paths are the normal case for local development.
-  }
-
-  if (!pathname.startsWith(`${PUBLIC_UPLOAD_PREFIX}/`)) return null;
-
-  const relativePath = pathname.slice(PUBLIC_UPLOAD_PREFIX.length + 1);
-  const targetPath = path.resolve(UPLOAD_ROOT, relativePath);
-
-  if (!targetPath.startsWith(`${UPLOAD_ROOT}${path.sep}`)) return null;
-
-  return targetPath;
-};
-
-const streamUploadedFile = async (publicUrl, res) => {
-  if (typeof publicUrl !== 'string' || !publicUrl.trim()) {
-    res.status(404).json({ error: 'Imagem nao encontrada' });
-    return;
-  }
-
-  if (/^https?:\/\//i.test(publicUrl)) {
-    const response = await fetch(publicUrl);
-
-    if (!response.ok) {
-      res.status(404).json({ error: 'Imagem nao encontrada' });
-      return;
-    }
-
-    const contentType = response.headers.get('content-type');
-    if (contentType) res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', 'private, max-age=60');
-    const buffer = Buffer.from(await response.arrayBuffer());
-    res.end(buffer);
-    return;
-  }
-
-  const targetPath = getLocalUploadPath(publicUrl);
-  if (!targetPath) {
-    res.status(404).json({ error: 'Imagem nao encontrada' });
-    return;
-  }
-
-  res.setHeader('Cache-Control', 'private, max-age=60');
-  res.sendFile(targetPath);
+  return getSignedUrl(getS3Client(), command, { expiresIn });
 };
 
 const deleteUploadedFile = async (publicUrl) => {
-  if (typeof publicUrl !== 'string' || !publicUrl.trim()) return;
-
-  const cloudinaryPublicId = getCloudinaryPublicId(publicUrl);
-  if (cloudinaryPublicId && configureCloudinary()) {
-    await cloudinary.uploader.destroy(cloudinaryPublicId, { resource_type: 'image' });
-    return;
-  }
-
-  const targetPath = getLocalUploadPath(publicUrl);
-  if (!targetPath) return;
+  const key = getTigrisObjectKey(publicUrl);
+  if (!key) return;
 
   try {
-    await fs.promises.unlink(targetPath);
+    await getS3Client().send(new DeleteObjectCommand({
+      Bucket: getBucketName(),
+      Key: key,
+    }));
   } catch (error) {
-    if (error.code !== 'ENOENT') {
+    if (error?.$metadata?.httpStatusCode !== 404) {
       throw error;
     }
   }
 };
 
 const cleanupUploadedRequestFile = async (req) => {
-  if (!req.file) return;
-
-  if (req.file.publicUrl) {
-    await deleteUploadedFile(req.file.publicUrl);
-    return;
-  }
-
-  if (req.file.path) {
-    try {
-      await fs.promises.unlink(req.file.path);
-    } catch (error) {
-      if (error.code !== 'ENOENT') throw error;
-    }
-  }
+  if (!req.file?.publicUrl) return;
+  await deleteUploadedFile(req.file.publicUrl);
 };
 
 const getUploadErrorMessage = (error) => {
   if (error?.code === 'LIMIT_FILE_SIZE') {
-    return 'A imagem deve ter no maximo 2 MB.';
+    return 'A imagem deve ter no maximo 20 MB.';
   }
 
   return error?.message || 'Nao foi possivel enviar a imagem.';
@@ -288,12 +178,12 @@ const getUploadErrorMessage = (error) => {
 
 module.exports = {
   PUBLIC_UPLOAD_PREFIX,
-  UPLOAD_ROOT,
   cleanupUploadedRequestFile,
   createImageUpload,
   deleteUploadedFile,
   getPublicUploadUrl,
+  getTigrisObjectKey,
   getUploadErrorMessage,
   runUpload,
-  streamUploadedFile,
+  signTigrisGetUrl,
 };
