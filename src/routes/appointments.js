@@ -50,7 +50,7 @@ router.post('/public/:slug/lookup', async (req, res) => {
       `SELECT
          a.id, a.appointment_date, a.appointment_time, a.status, a.created_at,
          c.name AS customer_name,
-         b.name AS barber_name,
+         b.name AS barber_name, b.image_url AS barber_image_url,
          s.name AS service_name, s.duration_minutes, s.price
        FROM appointments a
        JOIN barbershops bs ON a.barbershop_id = bs.id
@@ -294,7 +294,25 @@ router.patch('/:id/status', authenticateToken, async (req, res) => {
       [status, req.params.id, req.barbershop.id],
     );
     if (!result.affectedRows) return res.status(404).json({ error: 'Agendamento nao encontrado' });
-    res.json({ message: 'Status atualizado', status });
+
+    // Devolve o objeto completo (com joins) para o front substituir o item
+    // na lista sem perder customer/barber/service.
+    const [rows] = await db.query(
+      `SELECT
+         a.id, a.barbershop_id, a.barber_id, a.customer_id, a.service_id,
+         a.appointment_date, a.appointment_time, a.status, a.created_at,
+         c.name AS customer_name, c.phone AS customer_phone,
+         b.name AS barber_name, b.image_url AS barber_image_url,
+         s.name AS service_name, s.duration_minutes, s.price
+       FROM appointments a
+       JOIN customers c ON a.customer_id = c.id
+       JOIN barbers b ON a.barber_id = b.id
+       JOIN services s ON a.service_id = s.id
+       WHERE a.id = ? AND a.barbershop_id = ?`,
+      [req.params.id, req.barbershop.id],
+    );
+
+    res.json(rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
