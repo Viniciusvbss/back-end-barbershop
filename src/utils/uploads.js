@@ -125,17 +125,42 @@ const getPublicUploadUrl = (folder, filenameOrFile) => {
   return `${PUBLIC_UPLOAD_PREFIX}/${folder}/${filenameOrFile}`;
 };
 
-// Converte `/uploads/barbers/uuid.jpg` -> `barbers/uuid.jpg`. Retorna null para
-// qualquer entrada que não casa com o formato esperado (inclui URLs absolutas
-// legadas do Cloudinary, que continuam servíveis pelo próprio resolveMediaUrl
-// do front mas não são objetos do nosso bucket).
+// Converte qualquer formato conhecido em `<folder>/<filename>` (Key do bucket).
+// Suporta:
+//   - path relativo do contrato atual: `/uploads/barbers/uuid.jpg`
+//   - URL absoluta path-style do Tigris: `https://t3.storage.dev/<bucket>/<folder>/<filename>`
+//   - URL absoluta virtual-hosted: `https://<bucket>.t3.storage.dev/<folder>/<filename>`
+// Retorna null para qualquer outra coisa (ex.: URL legada do Cloudinary).
 const getTigrisObjectKey = (publicUrl) => {
   if (typeof publicUrl !== 'string' || !publicUrl.trim()) return null;
 
   const trimmed = publicUrl.trim();
-  if (!trimmed.startsWith(`${PUBLIC_UPLOAD_PREFIX}/`)) return null;
 
-  return trimmed.slice(PUBLIC_UPLOAD_PREFIX.length + 1);
+  if (trimmed.startsWith(`${PUBLIC_UPLOAD_PREFIX}/`)) {
+    return trimmed.slice(PUBLIC_UPLOAD_PREFIX.length + 1);
+  }
+
+  if (!/^https?:\/\//i.test(trimmed)) return null;
+
+  let parsed;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return null;
+  }
+
+  const bucket = process.env.AWS_BUCKET_NAME;
+  const pathname = parsed.pathname.replace(/^\/+/, '');
+
+  if (bucket && parsed.hostname.startsWith(`${bucket}.`)) {
+    return pathname || null;
+  }
+
+  if (bucket && pathname.startsWith(`${bucket}/`)) {
+    return pathname.slice(bucket.length + 1) || null;
+  }
+
+  return null;
 };
 
 const signTigrisGetUrl = async (key, expiresIn = PRESIGNED_GET_TTL_SECONDS) => {
@@ -149,17 +174,23 @@ const signTigrisGetUrl = async (key, expiresIn = PRESIGNED_GET_TTL_SECONDS) => {
 
 const deleteUploadedFile = async (publicUrl) => {
   const key = getTigrisObjectKey(publicUrl);
-  if (!key) return;
+  if (!key) {
+    if (publicUrl) {
+      console.warn('[uploads] deleteUploadedFile: chave nao extraida', { publicUrl });
+    }
+    return;
+  }
 
   try {
     await getS3Client().send(new DeleteObjectCommand({
       Bucket: getBucketName(),
       Key: key,
     }));
+    console.log('[uploads] deleteUploadedFile: ok', { key });
   } catch (error) {
-    if (error?.$metadata?.httpStatusCode !== 404) {
-      throw error;
-    }
+    if (error?.$metadata?.httpStatusCode === 404) return;
+    console.error('[uploads] deleteUploadedFile: erro', { key, error: error?.message });
+    throw error;
   }
 };
 

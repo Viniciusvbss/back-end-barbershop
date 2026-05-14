@@ -161,6 +161,34 @@ router.put('/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// DELETE /api/barbers/:id/image - PROTECTED: remove apenas a foto, mantendo o barbeiro
+router.delete('/:id/image', authenticateToken, async (req, res) => {
+  try {
+    await ensureBarberImageColumn();
+
+    const [rows] = await db.query(
+      'SELECT image_url FROM barbers WHERE id = ? AND barbershop_id = ?',
+      [req.params.id, req.barbershop.id],
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Barbeiro nao encontrado' });
+
+    await db.query(
+      'UPDATE barbers SET image_url = NULL WHERE id = ? AND barbershop_id = ?',
+      [req.params.id, req.barbershop.id],
+    );
+
+    await deleteUploadedFile(rows[0].image_url);
+
+    const [updatedRows] = await db.query(
+      'SELECT * FROM barbers WHERE id = ? AND barbershop_id = ?',
+      [req.params.id, req.barbershop.id],
+    );
+    res.json(updatedRows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // DELETE /api/barbers/:id - PROTECTED
 router.delete('/:id', authenticateToken, async (req, res) => {
   try {
