@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
+  "packageManager": "npm@11.12.1",
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
