@@ -1,3 +1,5 @@
+process.env.TZ = 'UTC';
+
 const { loadEnv } = require('./config/env');
 loadEnv();
 

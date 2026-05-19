@@ -1,97 +1,97 @@
-# Timezone — bug de drift de 3h e workaround atual
+# Correção de drift de timezone em Node + MySQL
 
-## Sintoma
+## O problema
 
-No detalhe público do agendamento (`/booking/:slug` → "Meus agendamentos" → card) o rodapé `Agendado em …` aparecia 3h adiantado em relação à hora real local do cliente.
+Stacks Node + MySQL2 + Railway (ou qualquer host fora do BRT) sofrem de
+**double-conversion**: o driver lê o `DATETIME` do banco como string sem
+indicação de fuso, constrói um `Date` interpretando na TZ do processo, e ao
+serializar para JSON com `.toISOString()` o ponto absoluto fica deslocado.
 
-Exemplo do dia da identificação (14/05/2026):
+Resultado prático: `created_at` aparecia **3h adiantado** no front ao formatar
+em `America/Sao_Paulo`.
 
-- Hora real do cliente em São Paulo: `05:56 BRT`
-- Agendamento criado ~4 min antes → real `05:52 BRT`
-- Display mostrava `08:52` (3h a mais)
-- JSON do `/api/appointments/public/:slug/lookup` retornava:
-  ```json
-  "created_at": "2026-05-14T11:52:05.000Z"
-  ```
-  ou seja `11:52 UTC`, o que em BRT vira `08:52` — bate com o que o display mostrava, mas **6h** a mais que o instante real.
+---
 
-## Causa raiz (provável)
+## A correção (duas linhas)
 
-A combinação atual do servidor produz uma **double-conversion**:
+### 1 — Primeira linha de `src/index.js`
 
-1. O servidor de aplicação está hospedado na Virginia (EDT/UTC-4), mas o processo Node provavelmente foi iniciado com `TZ=America/Sao_Paulo` (ou herdou de algum env).
-2. A coluna `created_at` é populada por `DEFAULT CURRENT_TIMESTAMP` do MySQL e armazena em UTC.
-3. Quando o `mysql2/promise` lê esse `DATETIME` (string-naive), ele constrói o objeto `Date` **interpretando a string na timezone do Node**. Ou seja, lê `2026-05-14 08:52:00` (UTC) e cria um `Date` que representa `08:52` em BRT → ponto absoluto `11:52 UTC`.
-4. `JSON.stringify(Date)` chama `.toISOString()`, que sempre escreve o ponto absoluto em UTC → `2026-05-14T11:52:05.000Z`.
-5. O front parseia esse ISO, formata em BRT (UTC-3) e exibe `08:52` — 3h a mais que a hora real do agendamento.
+```js
+process.env.TZ = 'UTC'; // deve vir ANTES de qualquer require
 
-Resumindo: o passo (3) trata a string como local, "carimba" 3h em cima, e o ISO acaba congelando essa hora errada.
+const { loadEnv } = require('./config/env');
+loadEnv();
+// ...
+```
 
-## Workaround aplicado (front)
+Força o processo Node a interpretar todas as datas em UTC desde o início.
+Precisa ser a **primeira linha absoluta** — depois do primeiro `require` já
+pode ser tarde demais se algum módulo cachear Date internamente.
 
-[front/src/views/BookingView.vue](../../front/src/views/BookingView.vue), função `formatBookingDateTime` e constante `BACKEND_DRIFT_MS`:
+### 2 — Pool do MySQL2 (`src/config/db.js`)
 
+```js
+const pool = mysql.createPool({
+  host: process.env.DB_HOST,
+  port: process.env.DB_PORT,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0,
+  timezone: '+00:00', // força a sessão MySQL a UTC
+});
+```
+
+Garante que a **sessão** aberta pelo driver com o banco também negocia em UTC,
+independente da configuração global do servidor MySQL.
+
+---
+
+## Por que essa abordagem e não as alternativas
+
+| Abordagem | Prós | Contras |
+|---|---|---|
+| `process.env.TZ = 'UTC'` + `timezone: '+00:00'` | Fecha os dois vetores; código auto-documentado; funciona em qualquer host | Nenhum |
+| Env var `TZ=UTC` no Railway | Equivalente ao código | Configuração fora do repo; dev local pode esquecer |
+| `dateStrings: true` no pool | Elimina ambiguidade no driver | Todo código que recebe Date do banco passa a receber string — quebra comparações/aritmética existentes |
+| Trocar `DATETIME` por `TIMESTAMP` | MySQL converte automaticamente | Requer migration de schema |
+
+---
+
+## Ajuste necessário no front
+
+Com o back corrigido, **remover** qualquer workaround de compensação manual.
+
+Antes (workaround):
 ```ts
-const dateTimeFormatter = new Intl.DateTimeFormat('pt-BR', {
-  day: '2-digit', month: 'short', year: 'numeric',
-  hour: '2-digit', minute: '2-digit',
-  timeZone: 'America/Sao_Paulo',
-})
 const BACKEND_DRIFT_MS = 3 * 60 * 60 * 1000
 const formatBookingDateTime = (raw) => {
-  if (!raw) return ''
   const parsed = new Date(raw)
-  if (Number.isNaN(parsed.getTime())) return raw
-  return dateTimeFormatter.format(new Date(parsed.getTime() - BACKEND_DRIFT_MS))
+  return formatter.format(new Date(parsed.getTime() - BACKEND_DRIFT_MS)) // subtração manual
 }
 ```
 
-Só compensa **no display**. O dado em trânsito e em banco continua deslocado.
-
-## Correção definitiva (a fazer no back)
-
-Escolha **uma** das opções e ajuste todos os pontos afetados.
-
-### Opção A — Rodar tudo em UTC (recomendado)
-
-1. Garantir `TZ=UTC` no ambiente Node (Railway env var ou `process.env.TZ = 'UTC'` no topo de `src/index.js`).
-2. Confirmar que o MySQL armazena `CURRENT_TIMESTAMP` em UTC (default na maioria das instalações; conferir `SELECT @@global.time_zone, @@session.time_zone`).
-3. Remover o `BACKEND_DRIFT_MS` do front e voltar a confiar no `timeZone: 'America/Sao_Paulo'` puro do `Intl.DateTimeFormat`.
-
-### Opção B — Forçar `dateStrings` no mysql2
-
-Configurar o pool com `dateStrings: true` para o driver devolver as colunas `DATETIME`/`TIMESTAMP` como string crua (`"2026-05-14 08:52:00"`) sem montar `Date`. Então normalizar manualmente onde for serializar JSON, anexando `Z` explicitamente.
-
-```js
-// back/src/config/db.js
-mysql.createPool({
-  // ...
-  dateStrings: true,
-})
+Depois (correto):
+```ts
+const formatBookingDateTime = (raw) => {
+  const parsed = new Date(raw)
+  return formatter.format(parsed) // Intl.DateTimeFormat com timeZone converte sozinho
+}
 ```
 
-Vantagem: elimina toda a ambiguidade de TZ na leitura. Desvantagem: precisa converter manualmente em qualquer comparação de data no JS.
+O `Intl.DateTimeFormat` com `timeZone: 'America/Sao_Paulo'` converte
+corretamente qualquer ISO UTC para BRT — não precisa de aritmética manual.
 
-### Opção C — Trocar `DATETIME` por `TIMESTAMP`
+---
 
-`TIMESTAMP` no MySQL é sempre armazenado em UTC e convertido automaticamente para a `session.time_zone` na leitura. Combinar com sessão em UTC remove a ambiguidade. Requer migration da coluna.
+## Como verificar em um novo projeto
 
-## Pontos do código a verificar quando consertar
+1. Crie um registro e anote a hora local exata (ex.: `00:52 BRT`).
+2. No banco: `SELECT created_at FROM tabela ORDER BY id DESC LIMIT 1`
+   → esperado: hora local + 3h em UTC (ex.: `03:52 UTC`).
+3. No JSON da API: campo deve vir como `"...T03:52:00.000Z"`.
+4. No front com `timeZone: 'America/Sao_Paulo'`: deve exibir `00:52`.
 
-Lugares que mostram ou comparam `created_at` / `appointment_date` / `appointment_time`:
-
-- [front/src/views/BookingView.vue](../../front/src/views/BookingView.vue) — `formatBookingDate`, `formatBookingDateTime`, `BACKEND_DRIFT_MS`
-- [front/src/views/admin/DashboardView.vue](../../front/src/views/admin/DashboardView.vue) — listing de "Próximos agendamentos"
-- [front/src/views/admin/ScheduleView.vue](../../front/src/views/admin/ScheduleView.vue) — filtro por data, exibição
-- [front/src/views/admin/ReportsView.vue](../../front/src/views/admin/ReportsView.vue) — agregação por dia
-
-Quando rodar a correção definitiva, **remover** a constante `BACKEND_DRIFT_MS` e o `- BACKEND_DRIFT_MS` da formatação no BookingView — caso contrário o display vai inverter o erro e ficar atrasado 3h.
-
-## Como confirmar que está resolvido
-
-1. Criar um agendamento agora e anotar a hora local exata (ex.: `14:30 BRT`).
-2. `SELECT created_at FROM appointments WHERE id = <novo>` no banco — esperado: `14:30 + 3h = 17:30 UTC`.
-3. Inspecionar `created_at` no JSON da API — esperado: `"2026-05-14T17:30:00.000Z"`.
-4. Front sem `BACKEND_DRIFT_MS`: display mostra `14:30 BRT` ao formatar com `timeZone: 'America/Sao_Paulo'`.
-
-Se algum dos passos acima der diferente, voltar ao passo (1) com o `process.env.TZ` corrigido antes.
+Se o passo 4 bater com a hora real, está correto.
