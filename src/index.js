@@ -42,9 +42,12 @@ app.use(PUBLIC_UPLOAD_PREFIX, require('./routes/uploads'));
 
 // Rate limit estrito nas rotas de autenticacao
 app.use('/api/auth', authLimiter);
+app.use('/api/barber/auth', authLimiter);
 
 // Routes
 app.use('/api/auth', require('./routes/auth'));
+app.use('/api/barber/auth', require('./routes/barberAuth'));
+app.use('/api/barber', require('./routes/barberDashboard'));
 app.use('/api/barbershops', require('./routes/barbershops'));
 app.use('/api/barbers', require('./routes/barbers'));
 app.use('/api/services', require('./routes/services'));
