@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const bcrypt = require('bcryptjs');
 const db = require('../config/db');
 const authenticateToken = require('../middleware/auth');
 const {
@@ -22,6 +23,15 @@ const ensureBarberImageColumn = async () => {
     const [rows] = await db.query('SHOW COLUMNS FROM barbers LIKE ?', ['image_url']);
     if (!rows.length) {
       await db.query('ALTER TABLE barbers ADD COLUMN image_url VARCHAR(500) NULL');
+    }
+    const [emailRows] = await db.query('SHOW COLUMNS FROM barbers LIKE ?', ['email']);
+    if (!emailRows.length) {
+      await db.query('ALTER TABLE barbers ADD COLUMN email VARCHAR(255) NULL');
+      await db.query('ALTER TABLE barbers ADD UNIQUE INDEX idx_barbers_email (email)');
+    }
+    const [passRows] = await db.query('SHOW COLUMNS FROM barbers LIKE ?', ['password']);
+    if (!passRows.length) {
+      await db.query('ALTER TABLE barbers ADD COLUMN password VARCHAR(255) NULL');
     }
   })().catch((error) => {
     schemaReadyPromise = null;
@@ -158,6 +168,37 @@ router.put('/:id', authenticateToken, async (req, res) => {
   } catch (err) {
     await cleanupUploadedRequestFile(req);
     res.status(400).json({ error: getUploadErrorMessage(err) });
+  }
+});
+
+// PUT /api/barbers/:id/credentials - PROTECTED: admin define email e senha do barbeiro
+router.put('/:id/credentials', authenticateToken, async (req, res) => {
+  try {
+    await ensureBarberImageColumn();
+
+    const [rows] = await db.query(
+      'SELECT id FROM barbers WHERE id = ? AND barbershop_id = ?',
+      [req.params.id, req.barbershop.id],
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Barbeiro nao encontrado' });
+
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: 'E-mail e senha sao obrigatorios' });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 12);
+    await db.query(
+      'UPDATE barbers SET email = ?, password = ? WHERE id = ? AND barbershop_id = ?',
+      [email.trim().toLowerCase(), hashedPassword, req.params.id, req.barbershop.id],
+    );
+
+    res.json({ message: 'Credenciais atualizadas com sucesso' });
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ error: 'Este e-mail ja esta em uso por outro barbeiro' });
+    }
+    res.status(500).json({ error: err.message });
   }
 });
 
