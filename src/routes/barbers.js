@@ -9,6 +9,7 @@ const {
   deleteUploadedFile,
   getPublicUploadUrl,
   getUploadErrorMessage,
+  resolveStorageUrl,
   runUpload,
 } = require('../utils/uploads');
 
@@ -52,7 +53,13 @@ router.get('/public/:slug', async (req, res) => {
        ORDER BY br.id`,
       [req.params.slug],
     );
-    res.json(rows);
+    const resolved = await Promise.all(
+      rows.map(async (row) => ({
+        ...row,
+        image_url: await resolveStorageUrl(row.image_url),
+      })),
+    );
+    res.json(resolved);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

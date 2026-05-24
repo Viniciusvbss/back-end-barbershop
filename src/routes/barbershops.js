@@ -10,6 +10,7 @@ const {
   deleteUploadedFile,
   getPublicUploadUrl,
   getUploadErrorMessage,
+  resolveStorageUrl,
   runUpload,
 } = require('../utils/uploads');
 const {
@@ -303,7 +304,9 @@ router.get('/slug/:slug', async (req, res) => {
       return res.status(404).json({ error: 'Barbearia nao encontrada' });
     }
 
-    res.json(normalizeBarbershopRow(rows[0]));
+    const normalized = normalizeBarbershopRow(rows[0]);
+    normalized.logo_url = await resolveStorageUrl(normalized.logo_url);
+    res.json(normalized);
   } catch (err) {
     res.status(500).json({ error: getErrorMessage(err) });
   }

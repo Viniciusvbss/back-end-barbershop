@@ -1,6 +1,8 @@
 const crypto = require('crypto');
 const path = require('path');
 const multer = require('multer');
+let sharp;
+try { sharp = require('sharp'); } catch { sharp = null; }
 const {
   S3Client,
   PutObjectCommand,
@@ -11,7 +13,17 @@ const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 
 const PUBLIC_UPLOAD_PREFIX = '/uploads';
 const MAX_IMAGE_SIZE_BYTES = 20 * 1024 * 1024;
-const PRESIGNED_GET_TTL_SECONDS = 300;
+const PRESIGNED_GET_TTL_SECONDS = 3600;
+const URL_CACHE_TTL_MS = 50 * 60 * 1000; // 50 min (inside the 1h TTL)
+
+const _urlCache = new Map();
+const _cacheCleanupInterval = setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of _urlCache) {
+    if (now >= v.expiresAt) _urlCache.delete(k);
+  }
+}, 10 * 60 * 1000);
+if (_cacheCleanupInterval.unref) _cacheCleanupInterval.unref();
 
 const EXTENSIONS_BY_MIME = {
   'image/png': '.png',
@@ -92,10 +104,20 @@ const uploadBufferToBucket = async (file, folder) => {
   return key;
 };
 
+const compressForUpload = async (file) => {
+  if (!sharp || file.mimetype === 'image/svg+xml') return file;
+  const compressed = await sharp(file.buffer)
+    .resize(800, 800, { fit: 'inside', withoutEnlargement: true })
+    .webp({ quality: 85 })
+    .toBuffer();
+  return { ...file, buffer: compressed, mimetype: 'image/webp' };
+};
+
 const attachUploadedImageUrl = async (req, upload) => {
   if (!req.file) return;
 
-  const key = await uploadBufferToBucket(req.file, upload.storageFolder);
+  const fileToUpload = await compressForUpload(req.file);
+  const key = await uploadBufferToBucket(fileToUpload, upload.storageFolder);
   req.file.objectKey = key;
   req.file.publicUrl = getRelativePublicPath(key);
 };
@@ -207,6 +229,23 @@ const getUploadErrorMessage = (error) => {
   return error?.message || 'Nao foi possivel enviar a imagem.';
 };
 
+// Returns a direct Tigris pre-signed URL for any stored image value.
+// If the value is already an absolute HTTP URL (e.g. Cloudinary), returns it as-is.
+// Results are cached for 50 min to avoid repeated HMAC computation.
+const resolveStorageUrl = async (value) => {
+  if (!value?.trim()) return value ?? null;
+  const v = value.trim();
+  if (/^https?:\/\//i.test(v)) return v;
+  if (!v.startsWith(`${PUBLIC_UPLOAD_PREFIX}/`)) return v;
+  const key = v.slice(PUBLIC_UPLOAD_PREFIX.length + 1);
+  const now = Date.now();
+  const cached = _urlCache.get(key);
+  if (cached && now < cached.expiresAt) return cached.url;
+  const url = await signTigrisGetUrl(key);
+  _urlCache.set(key, { url, expiresAt: now + URL_CACHE_TTL_MS });
+  return url;
+};
+
 module.exports = {
   PUBLIC_UPLOAD_PREFIX,
   cleanupUploadedRequestFile,
@@ -215,6 +254,7 @@ module.exports = {
   getPublicUploadUrl,
   getTigrisObjectKey,
   getUploadErrorMessage,
+  resolveStorageUrl,
   runUpload,
   signTigrisGetUrl,
 };

@@ -10,7 +10,10 @@ const logger = require('./utils/logger');
 const validationLogger = require('./middleware/validationLogger');
 const { authLimiter, generalLimiter, publicBookingLimiter } = require('./middleware/rateLimit');
 
+const compression = require('compression');
+
 const app = express();
+app.use(compression());
 
 const allowedOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
 
