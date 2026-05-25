@@ -2,108 +2,44 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
 const authenticateToken = require('../middleware/auth');
+const serviceService = require('../services/serviceService');
 
-// GET /api/services — PROTECTED: scoped to token's barbershop
-router.get('/public/:slug', async (req, res) => {
+router.get('/public/:slug', async (req, res, next) => {
   try {
-    const [rows] = await db.query(
-      `SELECT s.* FROM services s
-       INNER JOIN barbershops b ON b.id = s.barbershop_id
-       WHERE b.slug = ?
-       ORDER BY s.id`,
-      [req.params.slug]
-    );
-    res.json(rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+    res.json(await serviceService.listPublic(db, req.params.slug));
+  } catch (err) { next(err); }
 });
 
-router.get('/', authenticateToken, async (req, res) => {
+router.get('/', authenticateToken, async (req, res, next) => {
   try {
-    const [rows] = await db.query(
-      'SELECT * FROM services WHERE barbershop_id = ?',
-      [req.barbershop.id]
-    );
-    res.json(rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+    res.json(await serviceService.list(db, req.barbershop.id));
+  } catch (err) { next(err); }
 });
 
-// GET /api/services/:id — PROTECTED: scoped to token's barbershop
-router.get('/:id', authenticateToken, async (req, res) => {
+router.get('/:id', authenticateToken, async (req, res, next) => {
   try {
-    const [rows] = await db.query(
-      'SELECT * FROM services WHERE id = ? AND barbershop_id = ?',
-      [req.params.id, req.barbershop.id]
-    );
-    if (!rows.length) return res.status(404).json({ error: 'Serviço não encontrado' });
-    res.json(rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+    res.json(await serviceService.getById(db, req.barbershop.id, req.params.id));
+  } catch (err) { next(err); }
 });
 
-// POST /api/services — PROTECTED: barbershop_id from token
-router.post('/', authenticateToken, async (req, res) => {
-  const { name, duration_minutes, price } = req.body;
-  // duration_minutes = 0 representa item adicional (sem bloquear agenda),
-  // por isso usamos checagem explícita de null/undefined em vez de !value.
-  if (!name || duration_minutes == null || price === undefined) {
-    return res.status(400).json({
-      error: 'Campos obrigatórios: name, duration_minutes, price',
-    });
-  }
-  if (Number(duration_minutes) < 0) {
-    return res.status(400).json({ error: 'duration_minutes não pode ser negativo' });
-  }
+router.post('/', authenticateToken, async (req, res, next) => {
   try {
-    const [result] = await db.query(
-      'INSERT INTO services (barbershop_id, name, duration_minutes, price) VALUES (?, ?, ?, ?)',
-      [req.barbershop.id, name, duration_minutes, price]
-    );
-    res.status(201).json({ id: result.insertId, barbershop_id: req.barbershop.id, name, duration_minutes, price });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+    const result = await serviceService.create(db, req.barbershop.id, req.body);
+    res.status(201).json(result);
+  } catch (err) { next(err); }
 });
 
-// PUT /api/services/:id — PROTECTED
-router.put('/:id', authenticateToken, async (req, res) => {
-  const { name, duration_minutes, price } = req.body;
-  if (duration_minutes != null && Number(duration_minutes) < 0) {
-    return res.status(400).json({ error: 'duration_minutes não pode ser negativo' });
-  }
+router.put('/:id', authenticateToken, async (req, res, next) => {
   try {
-    const [result] = await db.query(
-      'UPDATE services SET name = ?, duration_minutes = ?, price = ? WHERE id = ? AND barbershop_id = ?',
-      [name, duration_minutes, price, req.params.id, req.barbershop.id]
-    );
-    if (!result.affectedRows) return res.status(404).json({ error: 'Serviço não encontrado' });
-
-    const [rows] = await db.query(
-      'SELECT * FROM services WHERE id = ? AND barbershop_id = ?',
-      [req.params.id, req.barbershop.id],
-    );
-    res.json(rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+    res.json(await serviceService.update(db, req.barbershop.id, req.params.id, req.body));
+  } catch (err) { next(err); }
 });
 
-// DELETE /api/services/:id — PROTECTED
-router.delete('/:id', authenticateToken, async (req, res) => {
+router.delete('/:id', authenticateToken, async (req, res, next) => {
   try {
-    const [result] = await db.query(
-      'DELETE FROM services WHERE id = ? AND barbershop_id = ?',
-      [req.params.id, req.barbershop.id]
-    );
-    if (!result.affectedRows) return res.status(404).json({ error: 'Serviço não encontrado' });
-    res.json({ message: 'Serviço removido com sucesso' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+    await serviceService.remove(db, req.barbershop.id, req.params.id);
+    res.json({ message: 'Servico removido com sucesso' });
+  } catch (err) { next(err); }
 });
 
 module.exports = router;

@@ -11,6 +11,7 @@ const validationLogger = require('./middleware/validationLogger');
 const { authLimiter, generalLimiter, publicBookingLimiter } = require('./middleware/rateLimit');
 
 const compression = require('compression');
+const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
 app.use(compression());
@@ -63,6 +64,8 @@ app.use('/api/privacy', require('./routes/privacy'));
 app.get('/', (req, res) => {
   res.json({ message: 'Barbershop SaaS API', version: '1.0.0' });
 });
+
+app.use(errorHandler);
 
 const db = require('./config/db');
 const PORT = process.env.PORT || 3000;
