@@ -11,10 +11,16 @@ const {
 } = require('../utils/uploads');
 
 const uploadBarberImage = createImageUpload('barbers', 'image');
+const cache = require('../utils/cache');
 
 router.get('/public/:slug', async (req, res, next) => {
   try {
-    res.json(await barberService.listPublic(db, req.params.slug));
+    const key = `barbers:slug:${req.params.slug}`;
+    const cached = cache.get(key);
+    if (cached) return res.json(cached);
+    const result = await barberService.listPublic(db, req.params.slug);
+    cache.set(key, result);
+    res.json(result);
   } catch (err) { next(err); }
 });
 
@@ -34,6 +40,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
   try {
     await runUpload(uploadBarberImage, req, res);
     const result = await barberService.create(db, req.barbershop.id, req.body, req.file);
+    cache.delByPrefix('barbers:slug:');
     res.status(201).json(result);
   } catch (err) {
     await cleanupUploadedRequestFile(req);
@@ -45,6 +52,7 @@ router.put('/:id', authenticateToken, async (req, res, next) => {
   try {
     await runUpload(uploadBarberImage, req, res);
     const result = await barberService.update(db, req.barbershop.id, req.params.id, req.body, req.file);
+    cache.delByPrefix('barbers:slug:');
     res.json(result);
   } catch (err) {
     await cleanupUploadedRequestFile(req);
@@ -61,13 +69,16 @@ router.put('/:id/credentials', authenticateToken, async (req, res, next) => {
 
 router.delete('/:id/image', authenticateToken, async (req, res, next) => {
   try {
-    res.json(await barberService.removeBarberImage(db, req.barbershop.id, req.params.id));
+    const result = await barberService.removeBarberImage(db, req.barbershop.id, req.params.id);
+    cache.delByPrefix('barbers:slug:');
+    res.json(result);
   } catch (err) { next(err); }
 });
 
 router.delete('/:id', authenticateToken, async (req, res, next) => {
   try {
     await barberService.removeBarber(db, req.barbershop.id, req.params.id);
+    cache.delByPrefix('barbers:slug:');
     res.json({ message: 'Barbeiro removido com sucesso' });
   } catch (err) { next(err); }
 });

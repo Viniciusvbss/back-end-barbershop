@@ -1,9 +1,10 @@
+// @ts-check
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const barbershopRepo = require('../repositories/barbershopRepository');
 const authRepo = require('../repositories/authRepository');
-const { sendPasswordResetEmail } = require('../utils/mailer');
+const { hasEmailConfig, sendPasswordResetEmail } = require('../utils/mailer');
 const { normalizeBarbershopRow } = require('../utils/barbershopSettings');
 const { ValidationError, UnauthorizedError } = require('../errors/AppError');
 
@@ -72,9 +73,18 @@ const forgotPassword = async (db, req, email) => {
 
   const frontendUrl = process.env.FRONTEND_URL || process.env.CORS_ORIGIN || 'http://localhost:5173';
   const resetLink = `${frontendUrl.replace(/\/$/, '')}/reset-password?token=${rawToken}`;
-  const emailResult = await sendPasswordResetEmail({ to: barbershop.email, resetLink });
 
-  return { sent: emailResult.sent, preview: emailResult.preview, resetLink: !emailResult.sent ? emailResult.preview : undefined };
+  if (hasEmailConfig()) {
+    // Fire-and-forget — não bloqueia a resposta HTTP
+    sendPasswordResetEmail({ to: barbershop.email, resetLink }).catch((err) => {
+      require('../utils/logger').error('Email de recuperacao falhou', { message: err.message, to: barbershop.email });
+    });
+    return { sent: true };
+  }
+
+  // Modo dev: sem SMTP, devolve o link no response para facilitar testes
+  console.log('[dev] Password reset link:', resetLink);
+  return { sent: false, resetLink };
 };
 
 const resetPassword = async (db, { token, password, confirmPassword }) => {

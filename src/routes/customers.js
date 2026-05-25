@@ -6,7 +6,8 @@ const customerService = require('../services/customerService');
 
 router.get('/', authenticateToken, async (req, res, next) => {
   try {
-    res.json(await customerService.list(db, req.barbershop.id));
+    const { page, limit } = req.query;
+    res.json(await customerService.list(db, req.barbershop.id, { page, limit }));
   } catch (err) { next(err); }
 });
 

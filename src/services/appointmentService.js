@@ -1,3 +1,4 @@
+// @ts-check
 const appointmentRepo = require('../repositories/appointmentRepository');
 const serviceRepo = require('../repositories/serviceRepository');
 const customerRepo = require('../repositories/customerRepository');
@@ -42,7 +43,7 @@ const getById = async (db, barbershopId, id) => {
   return apt;
 };
 
-const listPrivate = async (db, barbershopId, filters) => {
+const listPrivate = async (db, barbershopId, filters = {}) => {
   await appointmentRepo.ensureSchema(db);
   return appointmentRepo.list(db, barbershopId, filters);
 };

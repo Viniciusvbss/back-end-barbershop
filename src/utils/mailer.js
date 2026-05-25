@@ -38,4 +38,4 @@ const sendPasswordResetEmail = async ({ to, resetLink }) => {
   return { sent: true };
 };
 
-module.exports = { sendPasswordResetEmail };
+module.exports = { hasEmailConfig, sendPasswordResetEmail };

@@ -2,7 +2,7 @@ const customerRepo = require('../repositories/customerRepository');
 const { recordConsentLog } = require('../utils/privacy');
 const { NotFoundError, ValidationError } = require('../errors/AppError');
 
-const list = (db, barbershopId) => customerRepo.list(db, barbershopId);
+const list = (db, barbershopId, pagination = {}) => customerRepo.list(db, barbershopId, pagination);
 
 const getById = async (db, barbershopId, id) => {
   const customer = await customerRepo.findById(db, id, barbershopId);

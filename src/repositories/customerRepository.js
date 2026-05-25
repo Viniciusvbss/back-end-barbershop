@@ -24,10 +24,28 @@ const findByPhone = async (db, barbershopId, phone) => {
   return rows.length ? rows[0] : null;
 };
 
-const list = async (db, barbershopId) => {
+const list = async (db, barbershopId, { page, limit } = {}) => {
   await ensurePrivacySchema(db);
+
+  const p = page != null ? Math.max(1, Number(page)) : null;
+  const l = limit != null ? Math.min(200, Math.max(1, Number(limit))) : null;
+
+  if (p !== null && l !== null) {
+    const [[{ total }]] = await db.query(
+      'SELECT COUNT(*) AS total FROM customers WHERE barbershop_id = ?',
+      [barbershopId],
+    );
+    const offset = (p - 1) * l;
+    const [rows] = await db.query(
+      `SELECT ${CUSTOMER_SELECT} FROM customers WHERE barbershop_id = ?
+       ORDER BY name LIMIT ? OFFSET ?`,
+      [barbershopId, l, offset],
+    );
+    return { data: rows, total, page: p, limit: l };
+  }
+
   const [rows] = await db.query(
-    `SELECT ${CUSTOMER_SELECT} FROM customers WHERE barbershop_id = ?`,
+    `SELECT ${CUSTOMER_SELECT} FROM customers WHERE barbershop_id = ? ORDER BY name`,
     [barbershopId],
   );
   return rows;

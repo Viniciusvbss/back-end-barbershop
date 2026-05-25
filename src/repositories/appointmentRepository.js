@@ -1,3 +1,4 @@
+// @ts-check
 const APPOINTMENT_SELECT = `
   a.id, a.barbershop_id, a.barber_id, a.customer_id, a.service_id,
   a.appointment_date, a.appointment_time, a.status, a.created_at,
@@ -97,14 +98,35 @@ const findById = async (db, id, barbershopId) => {
   return rows.length ? normalizeRow(rows[0]) : null;
 };
 
-const list = async (db, barbershopId, { barberId, date, status } = {}) => {
-  let query = `SELECT ${APPOINTMENT_SELECT} ${APPOINTMENT_JOINS} WHERE a.barbershop_id = ?`;
+const list = async (db, barbershopId, { barberId, date, status, page, limit } = {}) => {
+  let where = 'WHERE a.barbershop_id = ?';
   const params = [barbershopId];
-  if (barberId) { query += ' AND a.barber_id = ?'; params.push(barberId); }
-  if (date) { query += ' AND a.appointment_date = ?'; params.push(date); }
-  if (status) { query += ' AND a.status = ?'; params.push(status); }
-  query += ` ${APPOINTMENT_GROUP_BY} ORDER BY a.appointment_date, a.appointment_time`;
-  const [rows] = await db.query(query, params);
+  if (barberId) { where += ' AND a.barber_id = ?'; params.push(barberId); }
+  if (date) { where += ' AND a.appointment_date = ?'; params.push(date); }
+  if (status) { where += ' AND a.status = ?'; params.push(status); }
+
+  const p = page != null ? Math.max(1, Number(page)) : null;
+  const l = limit != null ? Math.min(200, Math.max(1, Number(limit))) : null;
+
+  if (p !== null && l !== null) {
+    const [[{ total }]] = await db.query(
+      `SELECT COUNT(DISTINCT a.id) AS total ${APPOINTMENT_JOINS} ${where}`,
+      params,
+    );
+    const offset = (p - 1) * l;
+    const [rows] = await db.query(
+      `SELECT ${APPOINTMENT_SELECT} ${APPOINTMENT_JOINS} ${where} ${APPOINTMENT_GROUP_BY}
+       ORDER BY a.appointment_date, a.appointment_time LIMIT ? OFFSET ?`,
+      [...params, l, offset],
+    );
+    return { data: rows.map(normalizeRow), total, page: p, limit: l };
+  }
+
+  const [rows] = await db.query(
+    `SELECT ${APPOINTMENT_SELECT} ${APPOINTMENT_JOINS} ${where} ${APPOINTMENT_GROUP_BY}
+     ORDER BY a.appointment_date, a.appointment_time`,
+    params,
+  );
   return rows.map(normalizeRow);
 };
 

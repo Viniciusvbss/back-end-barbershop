@@ -28,8 +28,10 @@ router.post('/public/:slug', async (req, res, next) => {
 
 router.get('/', authenticateToken, async (req, res, next) => {
   try {
-    const { barber_id, date, status } = req.query;
-    const result = await appointmentService.listPrivate(db, req.barbershop.id, { barberId: barber_id, date, status });
+    const { barber_id, date, status, page, limit } = req.query;
+    const result = await appointmentService.listPrivate(db, req.barbershop.id, {
+      barberId: barber_id, date, status, page, limit,
+    });
     res.json(result);
   } catch (err) { next(err); }
 });
