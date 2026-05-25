@@ -12,6 +12,7 @@ const { authLimiter, generalLimiter, publicBookingLimiter } = require('./middlew
 
 const compression = require('compression');
 const errorHandler = require('./middleware/errorHandler');
+const { runMigrations } = require('../migrations/runner');
 
 const app = express();
 app.use(compression());
@@ -77,6 +78,7 @@ app.listen(PORT, async () => {
   try {
     await db.query('SELECT 1');
     logger.info('Database connected successfully');
+    await runMigrations(db);
   } catch (err) {
     logger.error('Database connection failed', { message: err.message });
   }

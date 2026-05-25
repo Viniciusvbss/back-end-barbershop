@@ -22,16 +22,15 @@ CommonJS puro, Node + Express 5, MySQL via `mysql2/promise`. Bootstrap em [src/i
 
 Toda rota protegida passa por [middleware/auth.js](src/middleware/auth.js), que decodifica o Bearer token e coloca `req.barbershop = { id, email, name }`. Queries protegidas **sempre** filtram por `req.barbershop.id` (não confie em `barbershop_id` vindo do body). Rotas públicas seguem o padrão `/api/<recurso>/public/:slug` e fazem `JOIN` com `barbershops` pelo slug — ver [routes/appointments.js:7](src/routes/appointments.js#L7), [routes/barbers.js:35](src/routes/barbers.js#L35), [routes/services.js:7](src/routes/services.js#L7), [routes/businessHours.js](src/routes/businessHours.js). Em rotas protegidas com `:id`, use `ensureOwnBarbershop()` ([routes/barbershops.js:103](src/routes/barbershops.js#L103)) para garantir que o ID da URL bate com o do token.
 
-### Schema migrations sob demanda
+### Sistema de migrations
 
-**Não há sistema de migrations.** As tabelas base seguem o schema do [README.md](README.md), mas qualquer coluna/tabela nova é criada em runtime por funções `ensure*`:
+O schema evolui via arquivos numerados em [migrations/](../migrations/). O runner ([migrations/runner.js](../migrations/runner.js)) executa automaticamente na inicialização (após o `SELECT 1`), cria a tabela `schema_migrations` se não existir e aplica apenas as migrations ainda não registradas.
 
-- `ensureBarbershopSettingsColumns(db)` em [utils/barbershopSettings.js](src/utils/barbershopSettings.js) — adiciona colunas de branding, notificações, privacy, password_updated_at via `SHOW COLUMNS LIKE` + `ALTER TABLE ADD COLUMN`.
-- `ensurePrivacySchema(db)` em [utils/privacy.js](src/utils/privacy.js) — cria `consent_logs`, `privacy_requests` e adiciona colunas LGPD em `barbershops`/`customers`.
-- `ensurePasswordResetTables()` em [routes/auth.js:28](src/routes/auth.js#L28) — cria `password_resets` e `password_recovery_logs`.
-- `ensureBarberImageColumn()` em [routes/barbers.js:18](src/routes/barbers.js#L18) — adiciona `image_url` em `barbers`.
+**Ao adicionar campo novo:** crie `migrations/NNN_nome_descritivo.js` seguindo a numeração existente, com um `module.exports = { async up(db) { ... } }`. O arquivo deve ser idempotente (use `CREATE TABLE IF NOT EXISTS` e `SHOW COLUMNS LIKE` + `ALTER TABLE ADD COLUMN` para colunas).
 
-Cada uma usa um `schemaReadyPromise` módulo-level para idempotência por processo. **Ao adicionar campo novo:** estenda o array `SETTINGS_COLUMNS` correspondente ou crie uma nova `ensureX()` e chame-a no topo do handler antes da query — não edite o schema em arquivo de bootstrap.
+O schema completo do banco (todas as tabelas e colunas) está documentado em [docs/schema.md](docs/schema.md).
+
+As funções `ensure*()` nos repositórios e utils permanecem como fallback idempotente — são no-ops quando as colunas já existem — mas **não são mais o ponto de extensão para novas adições de schema**.
 
 ### Uploads de imagem (logo, barbeiro) — o ponto que está sendo migrado
 
@@ -68,7 +67,7 @@ Versões de política em [utils/privacy.js:1-2](src/utils/privacy.js#L1-L2) (`PR
 - **Não há TypeScript / build step.** `node src/index.js` roda direto. `nodemon` em dev observa `src/`.
 - **CORS manual**: não introduza o middleware `cors`; mantenha o padrão atual ou faça uma refatoração consciente.
 - **Rotas protegidas** usam `req.barbershop.id` — nunca aceite `barbershop_id` do body em rota autenticada.
-- **Ao adicionar coluna ao DB**: estenda a `ensure*` correspondente, não crie scripts SQL soltos.
+- **Ao adicionar coluna ao DB**: crie um arquivo em `migrations/` seguindo a numeração (ex.: `007_nome.js`). Não estenda as funções `ensure*()` — elas são fallback de compatibilidade, não o ponto de extensão.
 - **Erros**: padrão `{ error: 'mensagem em pt-BR (sem acentos no código)' }`. Validações de input retornam 400; conflitos retornam 409 (ex.: slug/email duplicado via `ER_DUP_ENTRY`, horário já ocupado).
 - A função `getBarbershopSelectFields()` faz alias `create_at AS created_at` — a coluna no DB chama-se mesmo `create_at` (sem `d`); preserve quando construir queries novas sobre `barbershops`.
 - A coleção Insomnia em [insomnia-collection.json](insomnia-collection.json) é fonte viva dos contratos REST e cobre mais que o [README.md](README.md) (que está desatualizado — não menciona `/api/auth/*`, uploads, privacy, ou os campos novos de branding/notificação).
