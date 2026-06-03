@@ -262,12 +262,57 @@ const getRaw = async (db, id, barbershopId) => {
   return rows.length ? rows[0] : null;
 };
 
+const listByCustomer = async (db, customerId, { page, limit, sort } = {}) => {
+  const p = page != null ? Math.max(1, Number(page)) : null;
+  const l = limit != null ? Math.min(100, Math.max(1, Number(limit))) : null;
+  const order = sort === 'asc' ? 'ASC' : 'DESC';
+
+  const baseQuery = `
+    SELECT a.id,
+           a.appointment_date AS date,
+           a.appointment_time AS time,
+           a.status,
+           a.created_at,
+           bs.name AS barbershop_name,
+           bs.slug AS barbershop_slug,
+           bs.logo_url AS barbershop_logo,
+           b.name AS barber_name,
+           GROUP_CONCAT(
+             CASE WHEN aps.quantity > 1 THEN CONCAT(s.name, ' ×', aps.quantity) ELSE s.name END
+             ORDER BY aps.position, s.id SEPARATOR ' + '
+           ) AS service_name
+    FROM appointments a
+    JOIN barbershops bs ON bs.id = a.barbershop_id
+    JOIN barbers b ON b.id = a.barber_id
+    LEFT JOIN appointment_services aps ON aps.appointment_id = a.id
+    LEFT JOIN services s ON s.id = aps.service_id
+    WHERE a.customer_id = ?
+    GROUP BY a.id, a.appointment_date, a.appointment_time, a.status, a.created_at,
+             bs.name, bs.slug, bs.logo_url, b.name
+    ORDER BY a.appointment_date ${order}, a.appointment_time ${order}
+  `;
+
+  if (p !== null && l !== null) {
+    const [[{ total }]] = await db.query(
+      'SELECT COUNT(*) AS total FROM appointments WHERE customer_id = ?',
+      [customerId],
+    );
+    const offset = (p - 1) * l;
+    const [rows] = await db.query(`${baseQuery} LIMIT ? OFFSET ?`, [customerId, l, offset]);
+    return { data: rows, total, page: p, limit: l };
+  }
+
+  const [rows] = await db.query(baseQuery, [customerId]);
+  return rows;
+};
+
 module.exports = {
   ensureSchema,
   findById,
   list,
   listPublicBySlug,
   lookupByPhone,
+  listByCustomer,
   checkConflict,
   create,
   update,

@@ -8,11 +8,8 @@ const BARBERSHOP_PRIVACY_COLUMNS = [
   { name: 'terms_version', definition: 'VARCHAR(32) NULL' },
 ];
 
+// Após migração 002: consentimento ficou em customer_barbershops; só anonymized_at permanece em customers
 const CUSTOMER_PRIVACY_COLUMNS = [
-  { name: 'privacy_policy_accepted_at', definition: 'DATETIME NULL' },
-  { name: 'privacy_policy_version', definition: 'VARCHAR(32) NULL' },
-  { name: 'marketing_consent', definition: 'TINYINT(1) NOT NULL DEFAULT 0' },
-  { name: 'marketing_consent_at', definition: 'DATETIME NULL' },
   { name: 'anonymized_at', definition: 'DATETIME NULL' },
 ];
 

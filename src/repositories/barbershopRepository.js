@@ -103,7 +103,14 @@ const remove = async (db, connection, id) => {
   await connection.query('DELETE FROM business_hours WHERE barbershop_id = ?', [id]);
   await connection.query('DELETE FROM services WHERE barbershop_id = ?', [id]);
   await connection.query('DELETE FROM barbers WHERE barbershop_id = ?', [id]);
-  await connection.query('DELETE FROM customers WHERE barbershop_id = ?', [id]);
+  // customer_barbershops e customer_favorites: ON DELETE CASCADE cuida disso ao deletar a barbearia,
+  // mas fazemos explícito para consistência dentro da transação
+  if (await tableExists(connection, 'customer_barbershops')) {
+    await connection.query('DELETE FROM customer_barbershops WHERE barbershop_id = ?', [id]);
+  }
+  if (await tableExists(connection, 'customer_favorites')) {
+    await connection.query('DELETE FROM customer_favorites WHERE barbershop_id = ?', [id]);
+  }
   if (await tableExists(connection, 'password_resets')) {
     await connection.query('DELETE FROM password_resets WHERE barbershop_id = ?', [id]);
   }

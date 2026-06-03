@@ -2,6 +2,7 @@
 const appointmentRepo = require('../repositories/appointmentRepository');
 const serviceRepo = require('../repositories/serviceRepository');
 const customerRepo = require('../repositories/customerRepository');
+const customerBarbershopRepo = require('../repositories/customerBarbershopRepository');
 const barbershopRepo = require('../repositories/barbershopRepository');
 const barberRepo = require('../repositories/barberRepository');
 const { PRIVACY_POLICY_VERSION, recordConsentLog } = require('../utils/privacy');
@@ -78,7 +79,6 @@ const createPublic = async (db, req, slug, body) => {
     throw new ValidationError('Aceite a Politica de Privacidade para continuar.');
   }
 
-  await customerRepo.ensureSchema(db);
   await appointmentRepo.ensureSchema(db);
 
   const shop = await barbershopRepo.findBySlug(db, slug);
@@ -92,19 +92,32 @@ const createPublic = async (db, req, slug, body) => {
   const valid = await serviceRepo.validateItems(db, serviceItems, barbershopId);
   if (!valid) throw new ValidationError('Servico invalido para esta barbearia');
 
+  const digits = String(customer_phone).replace(/\D/g, '');
+
   let customerId;
-  const existing = await customerRepo.findByPhone(db, barbershopId, customer_phone);
+  const existing = await customerRepo.findByPhone(db, digits);
 
   if (existing) {
     customerId = existing.id;
-    await customerRepo.updatePrivacyConsent(db, customerId, barbershopId, {
-      privacyVersion: PRIVACY_POLICY_VERSION,
-      marketingConsent: marketing_consent,
-    });
+    const linked = await customerBarbershopRepo.isLinked(db, customerId, barbershopId);
+    if (linked) {
+      await customerBarbershopRepo.updateConsent(db, customerId, barbershopId, {
+        privacyVersion: PRIVACY_POLICY_VERSION,
+        marketingConsent: marketing_consent,
+      });
+    } else {
+      await customerBarbershopRepo.link(db, customerId, barbershopId, {
+        privacyVersion: PRIVACY_POLICY_VERSION,
+        marketingConsent: marketing_consent,
+      });
+    }
   } else {
     customerId = await customerRepo.create(db, {
-      barbershopId, name: customer_name, phone: customer_phone, email: customer_email,
-      marketingConsent: marketing_consent, privacyVersion: PRIVACY_POLICY_VERSION,
+      name: customer_name, phone: digits, email: customer_email,
+    });
+    await customerBarbershopRepo.link(db, customerId, barbershopId, {
+      privacyVersion: PRIVACY_POLICY_VERSION,
+      marketingConsent: marketing_consent,
     });
   }
 
@@ -139,7 +152,10 @@ const createPrivate = async (db, barbershopId, body) => {
 
   const [[barberRows], [customerRows]] = await Promise.all([
     db.query('SELECT id FROM barbers WHERE id = ? AND barbershop_id = ? LIMIT 1', [barber_id, barbershopId]),
-    db.query('SELECT id FROM customers WHERE id = ? AND barbershop_id = ? LIMIT 1', [customer_id, barbershopId]),
+    db.query(
+      'SELECT customer_id FROM customer_barbershops WHERE customer_id = ? AND barbershop_id = ? LIMIT 1',
+      [customer_id, barbershopId],
+    ),
   ]);
 
   if (!barberRows.length || !customerRows.length) {

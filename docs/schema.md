@@ -98,25 +98,57 @@ CREATE TABLE services (
 
 ### `customers`
 
+Registro global — não vinculado a uma barbearia específica. O vínculo é feito via `customer_barbershops`.
+
 ```sql
 CREATE TABLE customers (
-  id                          INT AUTO_INCREMENT PRIMARY KEY,
+  id            INT AUTO_INCREMENT PRIMARY KEY,
+  name          VARCHAR(255) NOT NULL,
+  phone         VARCHAR(20) NULL,
+  email         VARCHAR(255) NULL,
+  password_hash VARCHAR(255) NULL,      -- NULL para clientes sem conta (criados via agendamento)
+  anonymized_at DATETIME NULL,
+  created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at    TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+  UNIQUE INDEX uk_customers_phone (phone),
+  UNIQUE INDEX uk_customers_email (email)
+);
+```
+
+### `customer_barbershops`
+
+Join table que registra o vínculo cliente ↔ barbearia, incluindo consentimento LGPD por barbearia.
+
+```sql
+CREATE TABLE customer_barbershops (
+  customer_id                 INT NOT NULL,
   barbershop_id               INT NOT NULL,
-  name                        VARCHAR(255) NOT NULL,
-  phone                       VARCHAR(20) NOT NULL,
-  email                       VARCHAR(255) NULL,
   privacy_policy_accepted_at  DATETIME NULL,
   privacy_policy_version      VARCHAR(32) NULL,
   marketing_consent           TINYINT(1) NOT NULL DEFAULT 0,
   marketing_consent_at        DATETIME NULL,
-  anonymized_at               DATETIME NULL,
   created_at                  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at                  TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
-  UNIQUE INDEX uk_customers_phone_shop (phone, barbershop_id),
-  INDEX idx_customers_barbershop_id   (barbershop_id),
-  CONSTRAINT fk_customers_barbershop
-    FOREIGN KEY (barbershop_id) REFERENCES barbershops(id)
+  PRIMARY KEY (customer_id, barbershop_id),
+  INDEX idx_cb_customer_id   (customer_id),
+  INDEX idx_cb_barbershop_id (barbershop_id),
+  CONSTRAINT fk_cb_customer  FOREIGN KEY (customer_id)  REFERENCES customers(id)  ON DELETE CASCADE,
+  CONSTRAINT fk_cb_barbershop FOREIGN KEY (barbershop_id) REFERENCES barbershops(id) ON DELETE CASCADE
+);
+```
+
+### `customer_favorites`
+
+```sql
+CREATE TABLE customer_favorites (
+  customer_id   INT NOT NULL,
+  barbershop_id INT NOT NULL,
+  created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  PRIMARY KEY (customer_id, barbershop_id),
+  CONSTRAINT fk_cf_customer  FOREIGN KEY (customer_id)  REFERENCES customers(id)  ON DELETE CASCADE,
+  CONSTRAINT fk_cf_barbershop FOREIGN KEY (barbershop_id) REFERENCES barbershops(id) ON DELETE CASCADE
 );
 ```
 
