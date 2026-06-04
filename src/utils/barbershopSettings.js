@@ -21,6 +21,12 @@ const SETTINGS_COLUMNS = [
   { name: 'terms_accepted_at', definition: 'DATETIME NULL' },
   { name: 'terms_version', definition: 'VARCHAR(32) NULL' },
   { name: 'updated_at', definition: 'TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP' },
+  // Campos de localização — adicionados pela migração 003
+  { name: 'address', definition: 'VARCHAR(500) NULL' },
+  { name: 'city', definition: 'VARCHAR(100) NULL' },
+  { name: 'state', definition: 'VARCHAR(2) NULL' },
+  { name: 'latitude', definition: 'DECIMAL(10,6) NULL' },
+  { name: 'longitude', definition: 'DECIMAL(11,6) NULL' },
 ];
 
 let schemaReadyPromise = null;
@@ -83,6 +89,12 @@ const getBarbershopSelectFields = (alias = '') => {
     `${prefix}terms_version`,
     `${prefix}create_at AS created_at`,
     `${prefix}updated_at`,
+    // Localização (migração 003)
+    `${prefix}address`,
+    `${prefix}city`,
+    `${prefix}state`,
+    `${prefix}latitude`,
+    `${prefix}longitude`,
   ].join(', ');
 };
 
@@ -102,6 +114,12 @@ const getPublicBarbershopSelectFields = (alias = '') => {
     `${prefix}brand_public_description`,
     `${prefix}create_at AS created_at`,
     `${prefix}updated_at`,
+    // Localização — exposta publicamente para a tela de busca do cliente
+    `${prefix}address`,
+    `${prefix}city`,
+    `${prefix}state`,
+    `${prefix}latitude`,
+    `${prefix}longitude`,
   ].join(', ');
 };
 
@@ -156,6 +174,12 @@ const normalizeBarbershopRow = (row = {}) => ({
   terms_version: row.terms_version || null,
   created_at: row.created_at || row.create_at || null,
   updated_at: row.updated_at || null,
+  // Localização — null quando ainda não cadastrado
+  address: typeof row.address === 'string' ? row.address : null,
+  city: typeof row.city === 'string' ? row.city : null,
+  state: typeof row.state === 'string' ? row.state : null,
+  latitude: row.latitude != null ? Number(row.latitude) : null,
+  longitude: row.longitude != null ? Number(row.longitude) : null,
 });
 
 module.exports = {

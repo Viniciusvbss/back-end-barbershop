@@ -24,7 +24,8 @@ const ensureOwnBarbershop = (req) => {
 
 router.get('/', async (req, res, next) => {
   try {
-    res.json(await barbershopService.list(db));
+    const { q, city, lat, lng, radius } = req.query;
+    res.json(await barbershopService.list(db, { q, city, lat, lng, radius }));
   } catch (err) { next(err); }
 });
 

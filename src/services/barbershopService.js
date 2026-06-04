@@ -92,6 +92,27 @@ const buildUpdatePayload = (body) => {
     if (title.length > 60) throw new ValidationError('O titulo publico deve ter no maximo 60 caracteres.');
     updates.brand_public_title = title;
   }
+  if ('address' in body) {
+    updates.address = typeof body.address === 'string' ? body.address.trim() : null;
+  }
+  if ('city' in body) {
+    updates.city = typeof body.city === 'string' ? body.city.trim() : null;
+  }
+  if ('state' in body) {
+    const s = typeof body.state === 'string' ? body.state.trim().toUpperCase() : null;
+    if (s && !/^[A-Z]{2}$/.test(s)) throw new ValidationError('Estado deve ser uma sigla de 2 letras (ex.: SP).');
+    updates.state = s || null;
+  }
+  if ('latitude' in body) {
+    const v = body.latitude != null ? Number(body.latitude) : null;
+    if (v !== null && (Number.isNaN(v) || v < -90 || v > 90)) throw new ValidationError('Latitude invalida.');
+    updates.latitude = v;
+  }
+  if ('longitude' in body) {
+    const v = body.longitude != null ? Number(body.longitude) : null;
+    if (v !== null && (Number.isNaN(v) || v < -180 || v > 180)) throw new ValidationError('Longitude invalida.');
+    updates.longitude = v;
+  }
   if ('brand_public_description' in body) {
     const desc = typeof body.brand_public_description === 'string' ? body.brand_public_description.trim() : '';
     if (desc.length > 280) throw new ValidationError('A descricao publica deve ter no maximo 280 caracteres.');
@@ -144,7 +165,20 @@ const validateNotificationSettings = (current, updates) => {
   }
 };
 
-const list = (db) => barbershopRepo.list(db);
+/**
+ * Lista barbearias com suporte a três modos de busca:
+ *   1. Proximidade  — lat + lng fornecidos: ordena pelo Haversine (distância)
+ *   2. Cidade       — filtra por city LIKE %city%
+ *   3. Nome         — filtra por name LIKE %q%
+ *   4. Padrão       — retorna todas quando nenhum filtro é informado
+ */
+const list = (db, { q, city, lat, lng, radius } = {}) => {
+  const hasGeo = lat != null && lng != null;
+  if (hasGeo) return barbershopRepo.listNearby(db, { lat: Number(lat), lng: Number(lng), radius: radius ? Number(radius) : 50 });
+  if (city) return barbershopRepo.listByCity(db, city);
+  if (q) return barbershopRepo.listByName(db, q);
+  return barbershopRepo.list(db);
+};
 
 const getBySlug = async (db, slug) => {
   const shop = await barbershopRepo.findBySlug(db, slug);
