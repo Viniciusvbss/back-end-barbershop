@@ -173,46 +173,36 @@ Adiciona campos de endereço e coordenadas geográficas à tabela `barbershops` 
 | `address` | `VARCHAR(500) NULL` | Endereço completo (rua + número) |
 | `city` | `VARCHAR(100) NULL` | Cidade — usada também como filtro textual |
 | `state` | `VARCHAR(2) NULL` | UF (sigla), ex.: `SP` |
-| `latitude` | `DECIMAL(10,6) NULL` | Latitude WGS-84 em graus decimais |
-| `longitude` | `DECIMAL(11,6) NULL` | Longitude WGS-84 em graus decimais |
+| `latitude` ~~removida em `004`~~ | `DECIMAL(10,6) NULL` | Latitude WGS-84 em graus decimais |
+| `longitude` ~~removida em `004`~~ | `DECIMAL(11,6) NULL` | Longitude WGS-84 em graus decimais |
 
 **Índices criados:**
 
 ```sql
 -- Filtra rapidamente linhas com coordenadas (latitude IS NOT NULL)
 -- antes do cálculo Haversine, evitando full table scan
+-- (removido em 004 — ver abaixo)
 ALTER TABLE barbershops ADD INDEX idx_barbershops_geo (latitude, longitude);
 
 -- Busca textual por cidade (LIKE 'cidade%' aproveita este índice)
 ALTER TABLE barbershops ADD INDEX idx_barbershops_city (city);
 ```
 
-**Como a busca por proximidade funciona (Haversine):**
+A busca por proximidade (Haversine) descrita originalmente aqui foi removida — ver `004_remove_barbershop_coordinates.js`.
 
-A fórmula de Haversine calcula a distância em linha reta (great-circle) entre dois pontos na superfície esférica da Terra. O raio médio da Terra usado é **6371 km**.
+---
+
+### `004_remove_barbershop_coordinates.js` — Remove coordenadas das barbearias
+
+A busca por proximidade (Haversine) foi descontinuada. Remove as colunas `latitude` e `longitude` e o índice `idx_barbershops_geo` da tabela `barbershops`, adicionados pela migração 003.
+
+`address`, `city` e `state` permanecem — continuam em uso na busca por cidade e na exibição do endereço.
 
 ```sql
--- Parâmetros: [user_lat, user_lat, user_lng, radius_km]
-SELECT
-  id, name, slug, city, logo_url,
-  ROUND(
-    6371 * acos(
-      LEAST(1.0,                         -- clamp para evitar erro de domínio em acos()
-        sin(radians(?))  * sin(radians(latitude)) +
-        cos(radians(?))  * cos(radians(latitude)) * cos(radians(longitude) - radians(?))
-      )
-    ),
-  1) AS distance_km
-FROM barbershops
-WHERE latitude IS NOT NULL AND longitude IS NOT NULL
-HAVING distance_km <= ?               -- filtra dentro do raio (padrão 50 km)
-ORDER BY distance_km ASC              -- mais próximas primeiro
+ALTER TABLE barbershops DROP INDEX idx_barbershops_geo;
+ALTER TABLE barbershops DROP COLUMN latitude;
+ALTER TABLE barbershops DROP COLUMN longitude;
 ```
-
-> **Por que `LEAST(1.0, ...)`?**
-> A imprecisão de ponto flutuante pode produzir valores ligeiramente acima de 1,
-> o que causaria `acos()` retornar `NaN`. O `LEAST` garante que o argumento
-> fique no domínio `[-1, 1]`.
 
 ---
 

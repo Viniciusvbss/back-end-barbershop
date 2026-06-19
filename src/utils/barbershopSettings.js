@@ -25,8 +25,6 @@ const SETTINGS_COLUMNS = [
   { name: 'address', definition: 'VARCHAR(500) NULL' },
   { name: 'city', definition: 'VARCHAR(100) NULL' },
   { name: 'state', definition: 'VARCHAR(2) NULL' },
-  { name: 'latitude', definition: 'DECIMAL(10,6) NULL' },
-  { name: 'longitude', definition: 'DECIMAL(11,6) NULL' },
 ];
 
 let schemaReadyPromise = null;
@@ -93,8 +91,6 @@ const getBarbershopSelectFields = (alias = '') => {
     `${prefix}address`,
     `${prefix}city`,
     `${prefix}state`,
-    `${prefix}latitude`,
-    `${prefix}longitude`,
   ].join(', ');
 };
 
@@ -178,8 +174,8 @@ const normalizeBarbershopRow = (row = {}) => ({
   address: typeof row.address === 'string' ? row.address : null,
   city: typeof row.city === 'string' ? row.city : null,
   state: typeof row.state === 'string' ? row.state : null,
-  latitude: row.latitude != null ? Number(row.latitude) : null,
-  longitude: row.longitude != null ? Number(row.longitude) : null,
+  latitude: row.latitude != null ? parseFloat(row.latitude) : null,
+  longitude: row.longitude != null ? parseFloat(row.longitude) : null,
 });
 
 module.exports = {

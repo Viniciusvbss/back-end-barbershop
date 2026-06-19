@@ -19,6 +19,7 @@ const {
   deleteUploadedFile,
 } = require('../utils/uploads');
 const { NotFoundError, ValidationError, ConflictError } = require('../errors/AppError');
+const { geocodeAddress } = require('../utils/geocoding');
 
 const isBcryptHash = (v) => typeof v === 'string' && (v.startsWith('$2a$') || v.startsWith('$2b$'));
 
@@ -103,16 +104,6 @@ const buildUpdatePayload = (body) => {
     if (s && !/^[A-Z]{2}$/.test(s)) throw new ValidationError('Estado deve ser uma sigla de 2 letras (ex.: SP).');
     updates.state = s || null;
   }
-  if ('latitude' in body) {
-    const v = body.latitude != null ? Number(body.latitude) : null;
-    if (v !== null && (Number.isNaN(v) || v < -90 || v > 90)) throw new ValidationError('Latitude invalida.');
-    updates.latitude = v;
-  }
-  if ('longitude' in body) {
-    const v = body.longitude != null ? Number(body.longitude) : null;
-    if (v !== null && (Number.isNaN(v) || v < -180 || v > 180)) throw new ValidationError('Longitude invalida.');
-    updates.longitude = v;
-  }
   if ('brand_public_description' in body) {
     const desc = typeof body.brand_public_description === 'string' ? body.brand_public_description.trim() : '';
     if (desc.length > 280) throw new ValidationError('A descricao publica deve ter no maximo 280 caracteres.');
@@ -165,19 +156,54 @@ const validateNotificationSettings = (current, updates) => {
   }
 };
 
+const haversine = (lat1, lon1, lat2, lon2) => {
+  const R = 6371;
+  const toRad = (v) => (v * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return Math.round(2 * R * Math.asin(Math.sqrt(a)) * 10) / 10;
+};
+
 /**
  * Lista barbearias com suporte a três modos de busca:
- *   1. Proximidade  — lat + lng fornecidos: ordena pelo Haversine (distância)
- *   2. Cidade       — filtra por city LIKE %city%
- *   3. Nome         — filtra por name LIKE %q%
- *   4. Padrão       — retorna todas quando nenhum filtro é informado
+ *   1. Cidade      — filtra por city LIKE %city%
+ *   2. Nome        — filtra por name LIKE %q%
+ *   3. Proximidade — quando lat/lng informados, injeta distance_km (Haversine) e ordena
+ *   4. Padrão      — retorna todas quando nenhum filtro é informado
  */
-const list = (db, { q, city, lat, lng, radius } = {}) => {
-  const hasGeo = lat != null && lng != null;
-  if (hasGeo) return barbershopRepo.listNearby(db, { lat: Number(lat), lng: Number(lng), radius: radius ? Number(radius) : 50 });
-  if (city) return barbershopRepo.listByCity(db, city);
-  if (q) return barbershopRepo.listByName(db, q);
-  return barbershopRepo.list(db);
+const list = async (db, { q, city, lat, lng } = {}) => {
+  let rows;
+  if (city) rows = await barbershopRepo.listByCity(db, city);
+  else if (q) rows = await barbershopRepo.listByName(db, q);
+  else rows = await barbershopRepo.list(db);
+
+  const userLat = parseFloat(lat);
+  const userLng = parseFloat(lng);
+  if (!Number.isNaN(userLat) && !Number.isNaN(userLng)) {
+    rows = rows
+      .map((shop) => ({
+        ...shop,
+        distance_km:
+          shop.latitude != null && shop.longitude != null
+            ? haversine(userLat, userLng, shop.latitude, shop.longitude)
+            : null,
+      }))
+      .sort((a, b) => {
+        if (a.distance_km == null) return 1;
+        if (b.distance_km == null) return -1;
+        return a.distance_km - b.distance_km;
+      });
+  }
+
+  return rows;
+};
+
+const geocodeAndSave = async (db, id, { address, city, state }) => {
+  const coords = await geocodeAddress({ address, city, state });
+  if (coords) await barbershopRepo.updateCoordinates(db, id, coords.latitude, coords.longitude);
 };
 
 const getBySlug = async (db, slug) => {
@@ -259,6 +285,8 @@ const update = async (db, id, body, current) => {
     updates.password_updated_at = new Date();
   }
 
+  const addressChanged = 'address' in updates || 'city' in updates || 'state' in updates;
+
   if (!Object.keys(updates).length) return current;
 
   const assignments = [];
@@ -277,6 +305,16 @@ const update = async (db, id, body, current) => {
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY') throw new ConflictError('Slug ou email ja cadastrado');
     throw err;
+  }
+
+  if (addressChanged) {
+    const addr = {
+      address: updates.address !== undefined ? updates.address : current.address,
+      city: updates.city !== undefined ? updates.city : current.city,
+      state: updates.state !== undefined ? updates.state : current.state,
+    };
+    // Fire-and-forget: não bloqueia a resposta
+    geocodeAndSave(db, id, addr).catch(() => {});
   }
 
   return barbershopRepo.findById(db, id);

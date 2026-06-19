@@ -64,46 +64,6 @@ const listByCity = async (db, city) => {
   return rows.map(normalizeBarbershopRow);
 };
 
-/**
- * Busca por proximidade usando a fórmula de Haversine.
- *
- * A fórmula calcula a distância em km entre dois pontos na superfície esférica
- * da Terra a partir de suas coordenadas decimais (WGS-84).
- *
- * LEAST(1.0, ...) evita erros de domínio em acos() causados por imprecisão
- * de ponto flutuante que poderia produzir valores ligeiramente acima de 1.
- *
- * @param {object} db      - Pool de conexões mysql2
- * @param {number} lat     - Latitude do usuário em graus decimais
- * @param {number} lng     - Longitude do usuário em graus decimais
- * @param {number} radius  - Raio máximo de busca em km (padrão 50)
- */
-const listNearby = async (db, { lat, lng, radius = 50 }) => {
-  await ensureBarbershopSettingsColumns(db);
-
-  const [rows] = await db.query(
-    `SELECT ${getPublicBarbershopSelectFields()},
-       ROUND(
-         6371 * acos(
-           LEAST(1.0,
-             sin(radians(?)) * sin(radians(latitude)) +
-             cos(radians(?)) * cos(radians(latitude)) * cos(radians(longitude) - radians(?))
-           )
-         ),
-       1) AS distance_km
-     FROM barbershops
-     WHERE latitude IS NOT NULL AND longitude IS NOT NULL
-     HAVING distance_km <= ?
-     ORDER BY distance_km ASC`,
-    [lat, lat, lng, radius],
-  );
-
-  return rows.map((row) => ({
-    ...normalizeBarbershopRow(row),
-    distance_km: row.distance_km != null ? Number(row.distance_km) : null,
-  }));
-};
-
 const create = async (db, data) => {
   const [result] = await db.query(
     `INSERT INTO barbershops (
@@ -188,6 +148,13 @@ const remove = async (db, connection, id) => {
   return result.affectedRows > 0;
 };
 
+const updateCoordinates = async (db, id, latitude, longitude) => {
+  await db.query(
+    'UPDATE barbershops SET latitude = ?, longitude = ? WHERE id = ?',
+    [latitude, longitude, id],
+  );
+};
+
 const updatePassword = async (db, id, hashedPassword) => {
   await db.query(
     'UPDATE barbershops SET password = ?, password_updated_at = NOW() WHERE id = ?',
@@ -202,7 +169,6 @@ module.exports = {
   list,
   listByName,
   listByCity,
-  listNearby,
   create,
   update,
   updateLogo,
@@ -210,5 +176,6 @@ module.exports = {
   getLogo,
   getBarberImages,
   remove,
+  updateCoordinates,
   updatePassword,
 };
