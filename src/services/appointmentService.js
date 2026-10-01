@@ -8,6 +8,17 @@ const barberRepo = require('../repositories/barberRepository');
 const { PRIVACY_POLICY_VERSION, recordConsentLog } = require('../utils/privacy');
 const { NotFoundError, ValidationError, ConflictError } = require('../errors/AppError');
 
+const SLOT_CONFLICT_MESSAGE = 'Horario ja ocupado para este barbeiro';
+
+// checkConflict resolve o caso normal, mas duas requisicoes simultaneas passam as
+// duas por ele antes de qualquer uma gravar. O indice uk_apt_barber_slot (migration
+// 006) barra a segunda no banco; aqui o ER_DUP_ENTRY vira o mesmo 409 do check.
+const asSlotConflict = (err) => (
+  err.code === 'ER_DUP_ENTRY' && String(err.message).includes('uk_apt_barber_slot')
+    ? new ConflictError(SLOT_CONFLICT_MESSAGE)
+    : err
+);
+
 const collectServiceItems = (body) => {
   const items = [];
   const seen = new Map();
@@ -127,13 +138,18 @@ const createPublic = async (db, req, slug, body) => {
   });
 
   const hasConflict = await appointmentRepo.checkConflict(db, barbershopId, barber_id, appointment_date, appointment_time);
-  if (hasConflict) throw new ConflictError('Horario ja ocupado para este barbeiro');
+  if (hasConflict) throw new ConflictError(SLOT_CONFLICT_MESSAGE);
 
-  const appointmentId = await appointmentRepo.create(db, {
-    barbershopId, barberId: barber_id, customerId,
-    principalServiceId: serviceItems[0].service_id,
-    date: appointment_date, time: appointment_time,
-  });
+  let appointmentId;
+  try {
+    appointmentId = await appointmentRepo.create(db, {
+      barbershopId, barberId: barber_id, customerId,
+      principalServiceId: serviceItems[0].service_id,
+      date: appointment_date, time: appointment_time,
+    });
+  } catch (err) {
+    throw asSlotConflict(err);
+  }
 
   await appointmentRepo.replaceServices(db, appointmentId, serviceItems);
 
@@ -166,13 +182,18 @@ const createPrivate = async (db, barbershopId, body) => {
   if (!valid) throw new ValidationError('Servico invalido para esta barbearia');
 
   const hasConflict = await appointmentRepo.checkConflict(db, barbershopId, barber_id, appointment_date, appointment_time);
-  if (hasConflict) throw new ConflictError('Horario ja ocupado para este barbeiro');
+  if (hasConflict) throw new ConflictError(SLOT_CONFLICT_MESSAGE);
 
-  const appointmentId = await appointmentRepo.create(db, {
-    barbershopId, barberId: barber_id, customerId: customer_id,
-    principalServiceId: serviceItems[0].service_id,
-    date: appointment_date, time: appointment_time,
-  });
+  let appointmentId;
+  try {
+    appointmentId = await appointmentRepo.create(db, {
+      barbershopId, barberId: barber_id, customerId: customer_id,
+      principalServiceId: serviceItems[0].service_id,
+      date: appointment_date, time: appointment_time,
+    });
+  } catch (err) {
+    throw asSlotConflict(err);
+  }
 
   await appointmentRepo.replaceServices(db, appointmentId, serviceItems);
   return appointmentRepo.findById(db, appointmentId, barbershopId);
@@ -222,17 +243,21 @@ const updateAppointment = async (db, barbershopId, id, body) => {
     const hasConflict = await appointmentRepo.checkConflict(
       db, barbershopId, next.barber_id, next.appointment_date, next.appointment_time, id,
     );
-    if (hasConflict) throw new ConflictError('Horario ja ocupado para este barbeiro');
+    if (hasConflict) throw new ConflictError(SLOT_CONFLICT_MESSAGE);
   }
 
   const principalServiceId = nextServiceItems ? nextServiceItems[0].service_id : current.service_id;
 
-  await appointmentRepo.update(db, id, barbershopId, {
-    barberId: next.barber_id,
-    principalServiceId,
-    date: next.appointment_date,
-    time: next.appointment_time,
-  });
+  try {
+    await appointmentRepo.update(db, id, barbershopId, {
+      barberId: next.barber_id,
+      principalServiceId,
+      date: next.appointment_date,
+      time: next.appointment_time,
+    });
+  } catch (err) {
+    throw asSlotConflict(err);
+  }
 
   if (nextServiceItems) await appointmentRepo.replaceServices(db, id, nextServiceItems);
 
@@ -246,7 +271,15 @@ const updateStatus = async (db, barbershopId, id, status) => {
   }
 
   await appointmentRepo.ensureSchema(db);
-  const updated = await appointmentRepo.updateStatus(db, id, barbershopId, status);
+
+  // Tirar um agendamento de 'cancelled' devolve ele ao indice: se o horario ja
+  // foi ocupado por outro cliente nesse meio tempo, o UPDATE bate no UNIQUE.
+  let updated;
+  try {
+    updated = await appointmentRepo.updateStatus(db, id, barbershopId, status);
+  } catch (err) {
+    throw asSlotConflict(err);
+  }
   if (!updated) throw new NotFoundError('Agendamento nao encontrado');
 
   return appointmentRepo.findById(db, id, barbershopId);

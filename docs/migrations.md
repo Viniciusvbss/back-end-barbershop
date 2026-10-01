@@ -206,6 +206,34 @@ ALTER TABLE barbershops DROP COLUMN longitude;
 
 ---
 
+### `006_appointment_slot_unique.js` — Horário cancelado volta a ficar livre
+
+O banco tinha um `UNIQUE unique_barber_time (barber_id, appointment_date, appointment_time)` criado à mão, fora de migration e ausente do `schema.md`. Ele protege a corrida entre o `SELECT` do `checkConflict` e o `INSERT` (duas requisições simultâneas para o mesmo barbeiro/horário passam as duas pelo check antes de qualquer uma gravar), mas conta linhas canceladas: **depois de um cancelamento, aquele horário daquele barbeiro ficava queimado para sempre** — nenhum outro cliente conseguia marcar, e o erro chegava como 500.
+
+A 006 troca esse índice por um equivalente que ignora cancelados:
+
+```sql
+-- 1 enquanto o agendamento vale, NULL quando cancelado
+ALTER TABLE appointments
+  ADD COLUMN active_slot TINYINT
+  GENERATED ALWAYS AS (IF(status = 'cancelled', NULL, 1)) STORED;
+
+ALTER TABLE appointments
+  ADD UNIQUE INDEX uk_apt_barber_slot (barber_id, appointment_date, appointment_time, active_slot);
+
+ALTER TABLE appointments DROP INDEX unique_barber_time;
+```
+
+O MySQL não aplica `UNIQUE` sobre `NULL`, então linhas canceladas saem da trava. Dois agendamentos **ativos** no mesmo barbeiro/data/hora continuam impossíveis — o novo índice cobre as mesmas colunas do antigo, nenhuma proteção se perde. O drop vem depois do `ADD`, para nunca existir uma janela sem trava.
+
+A trava é **por barbeiro**: dois clientes continuam podendo marcar o mesmo horário com barbeiros diferentes.
+
+No código, `asSlotConflict()` ([src/services/appointmentService.js](../src/services/appointmentService.js)) traduz o `ER_DUP_ENTRY` desse índice no mesmo 409 (`Horario ja ocupado para este barbeiro`) do `checkConflict`, em vez do 500 genérico (ou do 409 `Slug ou email ja cadastrado` do handler global). O `checkConflict` continua existindo — cobre o caso normal sem depender de exceção; o índice é a rede de segurança da corrida.
+
+**Atenção:** a migration aborta se já existirem agendamentos ativos duplicados, listando cada conflito. Cancele ou remaneje as duplicatas e reinicie o servidor para aplicá-la.
+
+---
+
 ## Criar uma nova migration
 
 1. Crie o arquivo `migrations/NNN_nome_descritivo.js` seguindo a numeração (ex.: `004_...`)

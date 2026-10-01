@@ -166,12 +166,17 @@ CREATE TABLE appointments (
   appointment_date  DATE NOT NULL,
   appointment_time  TIME NOT NULL,
   status            ENUM('pending','confirmed','completed','cancelled') NOT NULL DEFAULT 'pending',
+  active_slot       TINYINT GENERATED ALWAYS AS (IF(status = 'cancelled', NULL, 1)) STORED,
   created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at        TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
   INDEX idx_appointments_barbershop_id (barbershop_id),
   INDEX idx_appointments_barber_id     (barber_id),
   INDEX idx_appointments_date          (appointment_date),
+  -- Impede dois agendamentos ATIVOS no mesmo barbeiro/data/hora (migration 006,
+  -- substitui o antigo unique_barber_time). active_slot fica NULL quando cancelado
+  -- e UNIQUE ignora NULL, entao o horario cancelado volta a ficar livre.
+  UNIQUE INDEX uk_apt_barber_slot (barber_id, appointment_date, appointment_time, active_slot),
   CONSTRAINT fk_appointments_barbershop
     FOREIGN KEY (barbershop_id) REFERENCES barbershops(id),
   CONSTRAINT fk_appointments_barber
