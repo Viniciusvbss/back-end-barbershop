@@ -5,10 +5,44 @@ const customerRepo = require('../repositories/customerRepository');
 const customerBarbershopRepo = require('../repositories/customerBarbershopRepository');
 const barbershopRepo = require('../repositories/barbershopRepository');
 const barberRepo = require('../repositories/barberRepository');
+const businessHoursRepo = require('../repositories/businessHoursRepository');
 const { PRIVACY_POLICY_VERSION, recordConsentLog } = require('../utils/privacy');
 const { NotFoundError, ValidationError, ConflictError } = require('../errors/AppError');
 
 const SLOT_CONFLICT_MESSAGE = 'Horario ja ocupado para este barbeiro';
+
+const toMinutes = (value) => {
+  const [hour, minute] = String(value).split(':').map(Number);
+  return (hour * 60) + (minute || 0);
+};
+
+// Weekday em UTC: 'YYYY-MM-DD' interpretado no fuso local renderia o dia anterior
+// em quem roda a oeste de Greenwich. 0 = domingo, igual a business_hours.weekday.
+// O body manda string; o getRaw devolve Date (o pool le DATE como meia-noite UTC).
+const weekdayOf = (date) => {
+  if (date instanceof Date) return date.getUTCDay();
+  const [year, month, day] = String(date).slice(0, 10).split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+};
+
+// Barbearia sem business_hours cadastrado nao tem janela para validar — deixa
+// passar, senao bloquearia todo agendamento de quem nunca preencheu a agenda.
+const assertWithinBusinessHours = (hours, date, time, durationMinutes) => {
+  if (!hours.length) return;
+
+  const today = hours.find((row) => Number(row.weekday) === weekdayOf(date));
+  if (!today) throw new ValidationError('A barbearia nao atende neste dia da semana.');
+
+  const open = toMinutes(today.open_time);
+  const close = toMinutes(today.close_time);
+  const start = toMinutes(time);
+
+  if (start < open || start + durationMinutes > close) {
+    throw new ValidationError(
+      `Horario fora do funcionamento da barbearia (${String(today.open_time).slice(0, 5)} as ${String(today.close_time).slice(0, 5)}).`,
+    );
+  }
+};
 
 // checkConflict resolve o caso normal, mas duas requisicoes simultaneas passam as
 // duas por ele antes de qualquer uma gravar. O indice uk_apt_barber_slot (migration
@@ -100,8 +134,13 @@ const createPublic = async (db, req, slug, body) => {
   const barber = await barberRepo.findById(db, barber_id, barbershopId);
   if (!barber) throw new ValidationError('Barbeiro invalido para esta barbearia');
 
-  const valid = await serviceRepo.validateItems(db, serviceItems, barbershopId);
-  if (!valid) throw new ValidationError('Servico invalido para esta barbearia');
+  const durationMinutes = await serviceRepo.totalDurationForItems(db, serviceItems, barbershopId);
+  if (durationMinutes === null) throw new ValidationError('Servico invalido para esta barbearia');
+
+  assertWithinBusinessHours(
+    await businessHoursRepo.findBySlug(db, slug),
+    appointment_date, appointment_time, durationMinutes,
+  );
 
   const digits = String(customer_phone).replace(/\D/g, '');
 
@@ -137,7 +176,9 @@ const createPublic = async (db, req, slug, body) => {
     action: 'privacy_policy_accepted', policyVersion: PRIVACY_POLICY_VERSION,
   });
 
-  const hasConflict = await appointmentRepo.checkConflict(db, barbershopId, barber_id, appointment_date, appointment_time);
+  const hasConflict = await appointmentRepo.checkConflict(
+    db, barbershopId, barber_id, appointment_date, appointment_time, durationMinutes,
+  );
   if (hasConflict) throw new ConflictError(SLOT_CONFLICT_MESSAGE);
 
   let appointmentId;
@@ -178,10 +219,17 @@ const createPrivate = async (db, barbershopId, body) => {
     throw new ValidationError('Barbeiro ou cliente invalido para esta barbearia');
   }
 
-  const valid = await serviceRepo.validateItems(db, serviceItems, barbershopId);
-  if (!valid) throw new ValidationError('Servico invalido para esta barbearia');
+  const durationMinutes = await serviceRepo.totalDurationForItems(db, serviceItems, barbershopId);
+  if (durationMinutes === null) throw new ValidationError('Servico invalido para esta barbearia');
 
-  const hasConflict = await appointmentRepo.checkConflict(db, barbershopId, barber_id, appointment_date, appointment_time);
+  assertWithinBusinessHours(
+    await businessHoursRepo.list(db, barbershopId),
+    appointment_date, appointment_time, durationMinutes,
+  );
+
+  const hasConflict = await appointmentRepo.checkConflict(
+    db, barbershopId, barber_id, appointment_date, appointment_time, durationMinutes,
+  );
   if (hasConflict) throw new ConflictError(SLOT_CONFLICT_MESSAGE);
 
   let appointmentId;
@@ -226,11 +274,14 @@ const updateAppointment = async (db, barbershopId, id, body) => {
     || body.service_id != null;
 
   let nextServiceItems = null;
+  let durationMinutes;
   if (wantsServiceUpdate) {
     nextServiceItems = collectServiceItems(body);
     if (!nextServiceItems.length) throw new ValidationError('Informe pelo menos um servico.');
-    const valid = await serviceRepo.validateItems(db, nextServiceItems, barbershopId);
-    if (!valid) throw new ValidationError('Servico invalido para esta barbearia');
+    durationMinutes = await serviceRepo.totalDurationForItems(db, nextServiceItems, barbershopId);
+    if (durationMinutes === null) throw new ValidationError('Servico invalido para esta barbearia');
+  } else {
+    durationMinutes = await appointmentRepo.durationOf(db, id);
   }
 
   const slotChanged = (
@@ -239,9 +290,17 @@ const updateAppointment = async (db, barbershopId, id, body) => {
     || String(next.appointment_time) !== String(current.appointment_time)
   );
 
-  if (slotChanged) {
+  // Trocar de servico sem mudar o horario tambem reabre a checagem: um servico mais
+  // longo comeca na mesma hora, mas termina em cima do agendamento seguinte.
+  if (slotChanged || wantsServiceUpdate) {
+    assertWithinBusinessHours(
+      await businessHoursRepo.list(db, barbershopId),
+      next.appointment_date, next.appointment_time, durationMinutes,
+    );
+
     const hasConflict = await appointmentRepo.checkConflict(
-      db, barbershopId, next.barber_id, next.appointment_date, next.appointment_time, id,
+      db, barbershopId, next.barber_id, next.appointment_date, next.appointment_time,
+      durationMinutes, id,
     );
     if (hasConflict) throw new ConflictError(SLOT_CONFLICT_MESSAGE);
   }

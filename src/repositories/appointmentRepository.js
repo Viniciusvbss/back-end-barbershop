@@ -153,7 +153,11 @@ const listPublicBySlug = async (db, slug, { barberId, date, status } = {}) => {
     LEFT JOIN appointment_services aps ON aps.appointment_id = a.id
     LEFT JOIN services s ON s.id = aps.service_id
     WHERE bs.slug = ?
+      AND a.status <> 'cancelled'
   `;
+  // Esta listagem alimenta a grade de horarios do agendamento publico: um
+  // agendamento cancelado nao ocupa mais nada, entao fica fora (o filtro
+  // opcional de status ainda se aplica, mas sempre dentro dos nao cancelados).
   const params = [slug];
   if (barberId) { query += ' AND a.barber_id = ?'; params.push(barberId); }
   if (date) { query += ' AND a.appointment_date = ?'; params.push(date); }
@@ -199,14 +203,45 @@ const lookupByPhone = async (db, slug, digits) => {
   return rows.map(normalizeRow);
 };
 
-const checkConflict = async (db, barbershopId, barberId, date, time, excludeId = null) => {
-  let query = `SELECT id FROM appointments
-    WHERE barbershop_id = ? AND barber_id = ? AND appointment_date = ?
-      AND appointment_time = ? AND status != 'cancelled'`;
-  const params = [barbershopId, barberId, date, time];
-  if (excludeId) { query += ' AND id != ?'; params.push(excludeId); }
+// Conflito e sobreposicao de intervalos, nao colisao de horario inicial: um corte
+// de 75 min marcado as 10:00 ocupa o barbeiro ate 11:15 e tem que barrar as 10:30.
+// Cada agendamento existente tem a duracao somada dos seus servicos; a comparacao
+// roda em segundos (TIME_TO_SEC) para nao depender de como o MySQL le 'HH:MM'.
+// Intervalos sao semiabertos — terminar 11:00 e comecar 11:00 nao se sobrepoe.
+const checkConflict = async (db, barbershopId, barberId, date, time, durationMinutes, excludeId = null) => {
+  const params = [barbershopId, barberId, date];
+
+  let query = `
+    SELECT a.id
+    FROM appointments a
+    LEFT JOIN appointment_services aps ON aps.appointment_id = a.id
+    LEFT JOIN services s ON s.id = aps.service_id
+    WHERE a.barbershop_id = ? AND a.barber_id = ? AND a.appointment_date = ?
+      AND a.status <> 'cancelled'`;
+
+  if (excludeId) { query += ' AND a.id <> ?'; params.push(excludeId); }
+
+  query += `
+    GROUP BY a.id, a.appointment_time
+    HAVING TIME_TO_SEC(a.appointment_time) < TIME_TO_SEC(?) + (? * 60)
+       AND TIME_TO_SEC(a.appointment_time)
+           + (COALESCE(SUM(s.duration_minutes * aps.quantity), 0) * 60) > TIME_TO_SEC(?)
+    LIMIT 1`;
+  params.push(time, durationMinutes, time);
+
   const [rows] = await db.query(query, params);
   return rows.length > 0;
+};
+
+const durationOf = async (db, appointmentId) => {
+  const [[row]] = await db.query(
+    `SELECT COALESCE(SUM(s.duration_minutes * aps.quantity), 0) AS total
+     FROM appointment_services aps
+     JOIN services s ON s.id = aps.service_id
+     WHERE aps.appointment_id = ?`,
+    [appointmentId],
+  );
+  return Number(row.total) || 0;
 };
 
 const create = async (db, { barbershopId, barberId, customerId, principalServiceId, date, time }) => {
@@ -314,6 +349,7 @@ module.exports = {
   lookupByPhone,
   listByCustomer,
   checkConflict,
+  durationOf,
   create,
   update,
   updateStatus,

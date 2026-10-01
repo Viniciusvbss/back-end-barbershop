@@ -24,15 +24,21 @@ const list = async (db, barbershopId) => {
   return rows;
 };
 
-const validateItems = async (db, items, barbershopId) => {
-  if (!items.length) return false;
+// Valida que todos os itens pertencem a barbearia e devolve a duracao total em
+// minutos, ja multiplicada pela quantidade. Retorna null (e nao 0) quando algum
+// servico nao e da loja, porque 0 e um total valido.
+const totalDurationForItems = async (db, items, barbershopId) => {
+  if (!items.length) return null;
   const ids = items.map((item) => item.service_id);
   const placeholders = ids.map(() => '?').join(', ');
   const [rows] = await db.query(
-    `SELECT id FROM services WHERE id IN (${placeholders}) AND barbershop_id = ?`,
+    `SELECT id, duration_minutes FROM services WHERE id IN (${placeholders}) AND barbershop_id = ?`,
     [...ids, barbershopId],
   );
-  return rows.length === ids.length;
+  if (rows.length !== ids.length) return null;
+
+  const durationById = new Map(rows.map((row) => [row.id, Number(row.duration_minutes) || 0]));
+  return items.reduce((total, item) => total + (durationById.get(item.service_id) * item.quantity), 0);
 };
 
 const create = async (db, { barbershopId, name, durationMinutes, price }) => {
@@ -60,4 +66,4 @@ const remove = async (db, id, barbershopId) => {
   return result.affectedRows > 0;
 };
 
-module.exports = { findById, findBySlug, list, validateItems, create, update, remove };
+module.exports = { findById, findBySlug, list, totalDurationForItems, create, update, remove };
