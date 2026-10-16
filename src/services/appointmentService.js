@@ -7,9 +7,10 @@ const barbershopRepo = require('../repositories/barbershopRepository');
 const barberRepo = require('../repositories/barberRepository');
 const businessHoursRepo = require('../repositories/businessHoursRepository');
 const { PRIVACY_POLICY_VERSION, recordConsentLog } = require('../utils/privacy');
-const { NotFoundError, ValidationError, ConflictError } = require('../errors/AppError');
+const { NotFoundError, ValidationError, ConflictError, UnauthorizedError } = require('../errors/AppError');
 
 const SLOT_CONFLICT_MESSAGE = 'Horario ja ocupado para este barbeiro';
+const PHONE_TAKEN_MESSAGE = 'Este telefone ja esta vinculado a outra conta.';
 
 const toMinutes = (value) => {
   const [hour, minute] = String(value).split(':').map(Number);
@@ -111,14 +112,20 @@ const lookupByPhone = async (db, slug, rawPhone) => {
 const createPublic = async (db, req, slug, body) => {
   const {
     barber_id, appointment_date, appointment_time,
-    customer_name, customer_phone, customer_email,
-    privacy_policy_accepted, marketing_consent,
+    customer_phone, privacy_policy_accepted, marketing_consent,
   } = body;
 
   const serviceItems = collectServiceItems(body);
 
-  if (!barber_id || !serviceItems.length || !appointment_date || !appointment_time || !customer_name || !customer_phone) {
-    throw new ValidationError('Campos obrigatorios: barber_id, service_items, appointment_date, appointment_time, customer_name, customer_phone');
+  // Só cliente logado agenda (a rota exige o token). Nome e e-mail vêm da conta;
+  // o telefone também, a menos que a conta tenha sido criada sem ele.
+  const customer = await customerRepo.findByIdGlobal(db, req.customer.id);
+  if (!customer || customer.anonymized_at) {
+    throw new UnauthorizedError('Conta de cliente indisponivel, faca login novamente');
+  }
+
+  if (!barber_id || !serviceItems.length || !appointment_date || !appointment_time || (!customer.phone && !customer_phone)) {
+    throw new ValidationError('Campos obrigatorios: barber_id, service_items, appointment_date, appointment_time, customer_phone');
   }
   if (!privacy_policy_accepted) {
     throw new ValidationError('Aceite a Politica de Privacidade para continuar.');
@@ -142,29 +149,30 @@ const createPublic = async (db, req, slug, body) => {
     appointment_date, appointment_time, durationMinutes,
   );
 
-  const digits = String(customer_phone).replace(/\D/g, '');
-
-  let customerId;
-  const existing = await customerRepo.findByPhone(db, digits);
-
-  if (existing) {
-    customerId = existing.id;
-    const linked = await customerBarbershopRepo.isLinked(db, customerId, barbershopId);
-    if (linked) {
-      await customerBarbershopRepo.updateConsent(db, customerId, barbershopId, {
-        privacyVersion: PRIVACY_POLICY_VERSION,
-        marketingConsent: marketing_consent,
-      });
-    } else {
-      await customerBarbershopRepo.link(db, customerId, barbershopId, {
-        privacyVersion: PRIVACY_POLICY_VERSION,
-        marketingConsent: marketing_consent,
-      });
+  if (!customer.phone) {
+    const digits = String(customer_phone).replace(/\D/g, '');
+    if (digits.length < 10 || digits.length > 11) {
+      throw new ValidationError('Informe um telefone valido com DDD.');
     }
-  } else {
-    customerId = await customerRepo.create(db, {
-      name: customer_name, phone: digits, email: customer_email,
+    const owner = await customerRepo.findByPhone(db, digits);
+    if (owner && owner.id !== customer.id) throw new ConflictError(PHONE_TAKEN_MESSAGE);
+    try {
+      await customerRepo.setPhone(db, customer.id, digits);
+    } catch (err) {
+      // Outra conta pode ter gravado o mesmo número entre a busca e o UPDATE.
+      if (err.code === 'ER_DUP_ENTRY') throw new ConflictError(PHONE_TAKEN_MESSAGE);
+      throw err;
+    }
+  }
+
+  const customerId = customer.id;
+  const linked = await customerBarbershopRepo.isLinked(db, customerId, barbershopId);
+  if (linked) {
+    await customerBarbershopRepo.updateConsent(db, customerId, barbershopId, {
+      privacyVersion: PRIVACY_POLICY_VERSION,
+      marketingConsent: marketing_consent,
     });
+  } else {
     await customerBarbershopRepo.link(db, customerId, barbershopId, {
       privacyVersion: PRIVACY_POLICY_VERSION,
       marketingConsent: marketing_consent,

@@ -81,6 +81,11 @@ const create = async (db, { name, phone, email }) => {
   return result.insertId;
 };
 
+// Completa o telefone de uma conta global que se cadastrou sem ele
+const setPhone = async (db, id, phone) => {
+  await db.query('UPDATE customers SET phone = ? WHERE id = ?', [phone, id]);
+};
+
 const update = async (db, id, barbershopId, { name, phone, email, marketingConsent }) => {
   const [linkRows] = await db.query(
     'SELECT 1 FROM customer_barbershops WHERE customer_id = ? AND barbershop_id = ? LIMIT 1',
@@ -172,6 +177,7 @@ module.exports = {
   findByEmail,
   list,
   create,
+  setPhone,
   update,
   remove,
   anonymize,
