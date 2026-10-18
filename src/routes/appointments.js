@@ -13,13 +13,6 @@ router.get('/public/:slug', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.post('/public/:slug/lookup', async (req, res, next) => {
-  try {
-    const result = await appointmentService.lookupByPhone(db, req.params.slug, req.body.phone ?? '');
-    res.json(result);
-  } catch (err) { next(err); }
-});
-
 // Agendar exige conta de cliente: sem token válido a API responde 401.
 router.post('/public/:slug', authenticateCustomer, async (req, res, next) => {
   try {

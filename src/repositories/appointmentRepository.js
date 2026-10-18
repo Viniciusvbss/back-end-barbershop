@@ -170,39 +170,6 @@ const listPublicBySlug = async (db, slug, { barberId, date, status } = {}) => {
   return rows.map(normalizeRow);
 };
 
-const lookupByPhone = async (db, slug, digits) => {
-  const [rows] = await db.query(
-    `SELECT
-       a.id, a.appointment_date, a.appointment_time, a.status, a.created_at,
-       c.name AS customer_name,
-       b.name AS barber_name, b.image_url AS barber_image_url,
-       GROUP_CONCAT(
-         CASE WHEN aps.quantity > 1 THEN CONCAT(s.name, ' ×', aps.quantity) ELSE s.name END
-         ORDER BY aps.position, s.id SEPARATOR ' + '
-       ) AS service_name,
-       COALESCE(SUM(s.duration_minutes * aps.quantity), 0) AS duration_minutes,
-       COALESCE(SUM(s.price * aps.quantity), 0) AS price,
-       CONCAT('[',
-         GROUP_CONCAT(
-           JSON_OBJECT('id', s.id, 'name', s.name, 'duration_minutes', s.duration_minutes, 'price', s.price, 'quantity', aps.quantity)
-           ORDER BY aps.position, s.id SEPARATOR ','
-         ),
-       ']') AS services
-     FROM appointments a
-     JOIN barbershops bs ON a.barbershop_id = bs.id
-     JOIN customers c ON a.customer_id = c.id
-     JOIN barbers b ON a.barber_id = b.id
-     LEFT JOIN appointment_services aps ON aps.appointment_id = a.id
-     LEFT JOIN services s ON s.id = aps.service_id
-     WHERE bs.slug = ?
-       AND REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(c.phone, '(', ''), ')', ''), '-', ''), ' ', ''), '+', '') = ?
-     GROUP BY a.id, a.appointment_date, a.appointment_time, a.status, a.created_at, c.name, b.name, b.image_url
-     ORDER BY a.appointment_date DESC, a.appointment_time DESC`,
-    [slug, digits],
-  );
-  return rows.map(normalizeRow);
-};
-
 // Conflito e sobreposicao de intervalos, nao colisao de horario inicial: um corte
 // de 75 min marcado as 10:00 ocupa o barbeiro ate 11:15 e tem que barrar as 10:30.
 // Cada agendamento existente tem a duracao somada dos seus servicos; a comparacao
@@ -346,7 +313,6 @@ module.exports = {
   findById,
   list,
   listPublicBySlug,
-  lookupByPhone,
   listByCustomer,
   checkConflict,
   durationOf,

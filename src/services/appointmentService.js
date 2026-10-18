@@ -100,15 +100,6 @@ const listPublic = async (db, slug, filters) => {
   return appointmentRepo.listPublicBySlug(db, slug, filters);
 };
 
-const lookupByPhone = async (db, slug, rawPhone) => {
-  const digits = rawPhone.replace(/\D/g, '');
-  if (digits.length < 10 || digits.length > 11) {
-    throw new ValidationError('Informe um telefone valido com DDD.');
-  }
-  await appointmentRepo.ensureSchema(db);
-  return appointmentRepo.lookupByPhone(db, slug, digits);
-};
-
 const createPublic = async (db, req, slug, body) => {
   const {
     barber_id, appointment_date, appointment_time,
@@ -362,7 +353,6 @@ module.exports = {
   getById,
   listPrivate,
   listPublic,
-  lookupByPhone,
   createPublic,
   createPrivate,
   updateAppointment,
